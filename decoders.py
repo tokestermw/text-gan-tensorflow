@@ -20,11 +20,16 @@ from tensorflow.python.ops import array_ops, control_flow_ops, variable_scope as
 from distributions import gumbel_softmax
 
 
-def gumbel_output_fn(cell_output, embedding_matrix, output_projection, temperature=1.0):
+def gumbel_output_fn(cell_output, embedding_matrix, output_projection, 
+                     end_of_sequence_id=3, temperature=1.0):
     # -- output projection parameters usually used for output logits prior to softmax
     # [B, H] * [H, V] + [V] -> [B, V]
     W, b = output_projection
     output_logits = tf.add(tf.matmul(cell_output, W), b)  # []
+
+    # -- stopping criterion if argmax is
+    output_argmax = tf.argmax(output_logits, axis=1)
+    next_done = tf.equal(output_argmax, end_of_sequence_id)
 
     # -- sample from gumbel softmax (aka concrete) distribution, higher the temperature is the spikier
     output_probs = gumbel_softmax(output_logits, temperature=temperature, hard=False)
@@ -32,7 +37,7 @@ def gumbel_output_fn(cell_output, embedding_matrix, output_projection, temperatu
     # soft embeddings for the next input
     # [B, V] * [V, H] -> [B, H]
     next_input = tf.matmul(output_probs, embedding_matrix)
-    return next_input
+    return next_input, next_done
 
 
 def gumbel_decoder_fn(
@@ -73,9 +78,9 @@ def gumbel_decoder_fn(
                 emit_output = cell_output
                 next_context_state = context_state
             else:
-                next_done = array_ops.zeros([batch_size, ], dtype=dtypes.bool)
+                # next_done = array_ops.zeros([batch_size, ], dtype=dtypes.bool)
                 next_cell_state = cell_state
-                next_cell_input = output_fn(cell_output, embeddings)
+                next_cell_input, next_done = output_fn(cell_output, embeddings)
                 emit_output = cell_output
                 next_context_state = context_state
 
@@ -109,9 +114,13 @@ if __name__ == "__main__":
     output_fn = functools.partial(gumbel_output_fn, output_projection=output_projection)
 
     decoder_fn = gumbel_decoder_fn(output_fn, encoder_state, embeddings, 
-        start_of_sequence_id=2, end_of_sequence_id=3, maximum_length=sequence_length, num_decoder_symbols=vocab_size)
+        start_of_sequence_id=2, end_of_sequence_id=3, 
+        maximum_length=tf.reduce_max(sequence_length) + 3, num_decoder_symbols=vocab_size)
 
     outputs, final_state, final_context_state = seq2seq.dynamic_rnn_decoder(
             cell, decoder_fn, inputs=None, sequence_length=sequence_length)
 
-    print("outputs shape", outputs.get_shape())
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        outputs_ = sess.run(outputs)        
+        print("outputs shape", outputs_.shape)
