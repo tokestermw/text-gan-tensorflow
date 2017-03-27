@@ -59,9 +59,8 @@ def gumbel_decoder_fn(
             batch_size = array_ops.shape(encoder_info)[0]
 
     def _decoder_fn(time, cell_state, cell_input, cell_output, context_state):
-        with ops.name_scope(name, "gumbel_decoder_fn_inference",
+        with ops.name_scope(name, "gumbel_decoder_fn",
                             [time, cell_state, cell_input, cell_output, context_state]):
-            # TODO: possibly add cell_input
             if cell_input is not None:
                 raise ValueError("Expected cell_input to be None, but saw: %s" %
                                  cell_input)

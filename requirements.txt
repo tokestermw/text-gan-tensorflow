@@ -1,0 +1,4 @@
+ipython==5.3.0
+numpy==1.12.1
+six==1.10.0
+tensorflow==1.0.0
