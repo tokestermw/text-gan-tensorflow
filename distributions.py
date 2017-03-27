@@ -7,7 +7,7 @@ Paper:
 
     The Concrete Distribution: A Continuous Relaxation of Discrete Random Variables
     https://arxiv.org/abs/1611.00712
-    
+
 Code:
     https://github.com/ericjang/gumbel-softmax
 """
@@ -69,5 +69,9 @@ if __name__ == "__main__":
         np.random.randn(batch_size, sequence_length, vocab_size), dtype=tf.float32)
     print("output logits shape", output_logits.get_shape())
 
-    softmax = gumbel_softmax(output_logits, 1.0, hard=False)
-    print("softmax shape", softmax.get_shape())
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+
+        softmax = gumbel_softmax(output_logits, 1.0, hard=False)
+        softmax_ = sess.run(softmax)
+        print("softmax shape", softmax_.shape)
