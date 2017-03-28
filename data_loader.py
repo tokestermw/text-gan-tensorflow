@@ -39,6 +39,7 @@ def read_data(path):
 
 
 # TODO: make save_path a command line option
+# TODO: add padding, oov, start, end symbols to vocab
 @maybe_save(save_path=DATA_PATH["ptb"]["vocab"])
 def build_vocab(path):
     counts = Counter()
@@ -72,6 +73,7 @@ def get_and_run_input_queues(path, word2idx, batch_size=32):
     input_ph = tf.placeholder(tf.int32, shape=[None])  # [B, T]
     queue = tf.PaddingFIFOQueue(shapes=[[None, ]], dtypes=[tf.int32], capacity=5000,)
 
+    # TODO: enqueue_many would be faster, would require batch and padding at numpy-level
     enqueue_op = queue.enqueue([input_ph])
     def enqueue_data(sess, epoch_size=10):
         for epoch in range(epoch_size):

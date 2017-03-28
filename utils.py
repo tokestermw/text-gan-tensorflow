@@ -7,7 +7,7 @@ import time
 import pickle
 import threading
 from contextlib import contextmanager
-from functools import partial, wraps
+from functools import wraps
 
 
 # TODO: move to utils
@@ -50,3 +50,9 @@ def start_threads(thread_fn, args, n_threads=8):
 
     time.sleep(1)  # enqueue a bunch before dequeue
     return threads
+
+
+def compose(data, *funcs):
+    for func in funcs:
+        data = func(data)
+    return data

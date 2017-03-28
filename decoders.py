@@ -23,20 +23,19 @@ from distributions import gumbel_softmax
 def gumbel_output_fn(cell_output, embedding_matrix, output_projection, 
                      end_of_sequence_id=3, temperature=1.0):
     # -- output projection parameters usually used for output logits prior to softmax
-    # [B, H] * [H, V] + [V] -> [B, V]
+
     W, b = output_projection
-    output_logits = tf.add(tf.matmul(cell_output, W), b)  # []
+    output_logits = tf.add(tf.matmul(cell_output, W), b)  # [B, H] * [H, V] + [V] -> [B, V]
 
     # -- stopping criterion if argmax is
     output_argmax = tf.argmax(output_logits, axis=1)
     next_done = tf.equal(output_argmax, end_of_sequence_id)
 
-    # -- sample from gumbel softmax (aka concrete) distribution, higher the temperature is the spikier
+    # -- sample from gumbel softmax (aka concrete) distribution, higher the temperature the spikier
     output_probs = gumbel_softmax(output_logits, temperature=temperature, hard=False)
 
     # soft embeddings for the next input
-    # [B, V] * [V, H] -> [B, H]
-    next_input = tf.matmul(output_probs, embedding_matrix)
+    next_input = tf.matmul(output_probs, embedding_matrix)  # [B, V] * [V, H] -> [B, H]
     return next_input, next_done
 
 
