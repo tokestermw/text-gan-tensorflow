@@ -12,10 +12,11 @@ from functools import partial
 import tensorflow as tf
 
 
+# TODO: add variable name and possibly context
 def pipe(func):
-    func = func
 
     class Pipe(object):
+
         def __init__(self, *args, **kwargs):
             self.func = func
             self.args = args
