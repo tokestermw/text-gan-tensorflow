@@ -1,19 +1,14 @@
-""" Batch loader of PPDB data.
-
-Adapted from:
-    https://github.com/devsisters/pointer-network-tensorflow/blob/master/data_loader.py
+""" Batch loader of PTB data.
 """
 import os
-import time
-from contextlib import contextmanager
 from collections import Counter
-import threading
+from contextlib import contextmanager
 
 import numpy as np
 import tensorflow as tf
 
 # -- local imports
-from utils import maybe_load
+from utils import maybe_save, start_threads
 
 
 DATA_DIR = "data"
@@ -21,11 +16,13 @@ DATA_PATH = {
     "ptb": {
         "train": os.path.join(DATA_DIR, "ptb", "train.txt"),
         "test": os.path.join(DATA_DIR, "ptb", "test.txt"),
-        "valid": os.path.join(DATA_DIR, "ptb", "valid.txt")
+        "valid": os.path.join(DATA_DIR, "ptb", "valid.txt"),
+        "vocab": os.path.join(DATA_DIR, "ptb", "vocab.pkl"),
     }
 }
 
 
+# TODO: spacy tokenizer
 def tokenize(line):
     return line.split()
 
@@ -37,7 +34,8 @@ def read_data(path):
             yield line
 
 
-@maybe_load(save_path=os.path.join(DATA_DIR, "ptb", "vocab.pkl"))
+# TODO: make save_path a command line option
+@maybe_save(save_path=DATA_PATH["ptb"]["vocab"])
 def build_vocab(path):
     counts = Counter()
 
@@ -62,11 +60,11 @@ def vectorize(line, word2idx):
 def preprocess(data):
     source = data[:, :-1]
     target = data[:, 1:]
-    sequence_length = tf.reduce_sum(tf.not_equal(data, 0), axis=1) - 1
+    sequence_length = tf.reduce_sum(tf.cast(tf.not_equal(target, 0), dtype=tf.int32), axis=1)
     return source, target, sequence_length
 
 
-def get_and_run_input_queues(path, word2idx):
+def get_and_run_input_queues(path, word2idx, batch_size=32):
     input_ph = tf.placeholder(tf.int32, shape=[None])  # [B, T]
     queue = tf.PaddingFIFOQueue(shapes=[[None, ]], dtypes=[tf.int32], capacity=5000,)
 
@@ -81,22 +79,10 @@ def get_and_run_input_queues(path, word2idx):
     # tf.train.add_queue_runner(queue_runner)
 
     dequeue_op = queue.dequeue()
-    dequeue_batch = tf.train.batch([dequeue_op], batch_size=32, capacity=100, 
+    dequeue_batch = tf.train.batch([dequeue_op], batch_size=batch_size, capacity=1000, 
         dynamic_pad=True, name="batch_and_pad")
 
     return enqueue_data, dequeue_batch
-
-
-def start_threads(thread_fn, args, n_threads=8):
-    threads = []
-    for n in range(n_threads):
-        t = threading.Thread(target=thread_fn, args=args)
-        t.daemon = True # thread will close when parent quits
-        t.start()
-        threads.append(t)
-
-    time.sleep(1)  # enqueue a bunch before dequeue
-    return threads
 
 
 @contextmanager
@@ -128,5 +114,6 @@ if __name__ == "__main__":
 
         with queue_context(sess):
             while True:
-                print(sess.run(dequeue_batch).shape)
-
+                source, target, sequence_length = preprocess(dequeue_batch)
+                s, t, l = sess.run([source, target, sequence_length])
+                print(s.shape, t.shape, l.shape)

@@ -3,8 +3,10 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-from contextlib import contextmanager
+import time
 import pickle
+import threading
+from contextlib import contextmanager
 from functools import partial, wraps
 
 
@@ -24,7 +26,7 @@ def load_pickle(path):
     return obj
 
 
-def maybe_load(save_path):
+def maybe_save(save_path):
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
@@ -36,3 +38,15 @@ def maybe_load(save_path):
                 save_pickle(obj, save_path)
         return wrapper
     return decorator
+
+
+def start_threads(thread_fn, args, n_threads=8):
+    threads = []
+    for n in range(n_threads):
+        t = threading.Thread(target=thread_fn, args=args)
+        t.daemon = True # thread will close when parent quits
+        t.start()
+        threads.append(t)
+
+    time.sleep(1)  # enqueue a bunch before dequeue
+    return threads
