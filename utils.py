@@ -32,10 +32,10 @@ def maybe_save(save_path):
         def wrapper(*args, **kwargs):
             if _check_file(save_path):
                 obj = load_pickle(save_path)
-                return obj
             else:
                 obj = f(*args, **kwargs)
                 save_pickle(obj, save_path)
+            return obj
         return wrapper
     return decorator
 

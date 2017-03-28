@@ -78,13 +78,13 @@ def gumbel_decoder_fn(
                 emit_output = cell_output
                 next_context_state = context_state
             else:
+                # -- if no stopping criterion
                 # next_done = array_ops.zeros([batch_size, ], dtype=dtypes.bool)
                 next_cell_state = cell_state
                 next_cell_input, next_done = output_fn(cell_output, embeddings)
                 emit_output = cell_output
                 next_context_state = context_state
 
-            # TODO: a better stopping criterion
             # if time > maxlen, return all true vector
             next_done = control_flow_ops.cond(math_ops.greater(time, maximum_length),
                                          lambda: array_ops.ones([batch_size, ], dtype=dtypes.bool),
