@@ -59,9 +59,9 @@ def vectorize(line, word2idx):
     tokens = tokenize(line)
     vector = [word2idx[token] for token in tokens]
     return vector
-    # return np.array(vector, dtype=np.int32)
 
 
+# TODO: get maximum sequence_length and limit it
 def preprocess(data):
     source = data[:, :-1]
     target = data[:, 1:]
