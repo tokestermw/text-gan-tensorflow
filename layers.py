@@ -7,9 +7,18 @@ from __future__ import division
 from __future__ import print_function
 
 from contextlib import contextmanager
-from functools import partial
+from functools import partial, wraps
 
 import tensorflow as tf
+
+
+_phase = tf.Variable(False, name='phase', trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES])
+_phase_train = _phase.assign(True)
+_phase_infer = _phase.assign(False)
+
+
+def _rank(x):
+    return len(x.get_shape())
 
 
 # TODO: add variable scope
@@ -33,52 +42,98 @@ def pipe(func):
 
 
 @pipe
-def identity_layer(tensor):
+def identity_layer(tensor, **opts):
     out = tf.identity(tensor)
     return out
 
 
 @pipe
-def embedding_layer(tensor, vocab_size, embedding_dim=128):
-    initializer = tf.contrib.layers.xavier_initializer(uniform=True)
-    embedding_matrix = initializer(shape=(vocab_size, embedding_dim))
+def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matrix=None, **opts):
+    if embedding_matrix is None:
+        initializer = tf.contrib.layers.xavier_initializer(uniform=True)
+        embedding_matrix = initializer(shape=(vocab_size, embedding_dim))
+
+    if opts.get("name"):
+        tf.add_to_collection(opts.get("name"), embedding_matrix)
+
     out = tf.nn.embedding_lookup(embedding_matrix, tensor)
     return out 
 
 
 @pipe
 def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, 
-                    activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None):
+                    activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None,
+                    return_final_state=False,
+                    **opts):
     if cell is None:
         cell = tf.contrib.rnn.BasicRNNCell(hidden_dims, activation=activation)#, initializer=initializer)
 
     outputs, final_state = tf.nn.dynamic_rnn(cell, tensor, 
         sequence_length=sequence_length, initial_state=initial_state, dtype=tf.float32)
-    return outputs
+
+    if return_final_state:
+        return final_state
+    else:
+        return outputs
 
 
 @pipe
-def reshape_layer(tensor, shape):
+def reshape_layer(tensor, shape, **opts):
     out = tf.reshape(tensor, shape=shape)
     return out
 
 
 @pipe
-def dense_layer(tensor, hidden_dims=128, weight=None, bias=None):
-    initializer = tf.contrib.layers.xavier_initializer(uniform=True)
+def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
+    tensor_shape = tf.shape(tensor)
     in_dim = int(tensor.get_shape()[-1])
 
+    rank = _rank(tensor)
+    if rank > 2:
+        # -- time distributed dense
+        tensor = tf.reshape(tensor, shape=(-1, in_dim))
+
     if weight is None:
+        initializer = tf.contrib.layers.xavier_initializer(uniform=True)
         weight = initializer(shape=(in_dim, hidden_dims))
     if bias is None:
         bias = tf.zeros(shape=hidden_dims)
 
+    if opts.get("name"):
+        tf.add_to_collection(opts.get("name"), weight)
+        tf.add_to_collection(opts.get("name"), bias)
+
     out = tf.add(tf.matmul(tensor, weight), bias)
+
+    if rank > 2:
+        out = tf.reshape(out, shape=tensor_shape)
+
     return out
 
 
 @pipe
-def softmax_layer(tensor, softmax_func=None):
+def dropout_layer(tensor, keep_prob=1.0):
+    keep_prob = tf.convert_to_tensor(keep_prob, dtype=tf.float32)
+    keep_prob = tf.cond(_phase, lambda: keep_prob, lambda: keep_prob * 0.0 + 1.0)
+
+    out = tf.nn.dropout(tensor, keep_prob=keep_prob)
+    return out
+
+
+@pipe
+def relu_layer(tensor):
+    out = tf.nn.relu(tensor)
+    return out
+
+
+@pipe
+def tanh_layer(tensor):
+    out = tf.nn.tanh(tensor)
+    return out
+
+
+@pipe
+def softmax_layer(tensor, softmax_func=None, **opts):
     if softmax_func is None:
         softmax_func = tf.nn.softmax
 
@@ -87,8 +142,8 @@ def softmax_layer(tensor, softmax_func=None):
 
 
 @pipe
-def cross_entropy_layer(tensor, target):
-    if len(target.get_shape()) > 1:
+def cross_entropy_layer(tensor, target, **opts):
+    if _rank(tensor) > 1:
         target = tf.reshape(target, shape=(-1, ))
 
     cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=tensor, labels=target)
@@ -98,12 +153,28 @@ def cross_entropy_layer(tensor, target):
 
 
 @pipe
-def mean_loss_by_example_layer(tensor, sequence_length):
+def sigmoid_cross_entropy_layer(tensor, target, **opts):
+    out = tf.nn.sigmoid_cross_entropy_with_logits(logits=tensor, labels=target)
+    return out
+
+
+@pipe
+def mean_loss_by_example_layer(tensor, sequence_length, **opts):
     out = tf.div(
         tf.reduce_sum(tensor, axis=1),
         tf.cast(sequence_length, dtype=tf.float32)
     )
     return out
+
+
+@pipe
+def conv1d_layer(tensor, dilation_rate=1, **opts):
+    raise NotImplementedError
+
+
+@pipe
+def residual_layer(tensor, **opts):
+    raise NotImplementedError
 
 
 if __name__ == "__main__":
