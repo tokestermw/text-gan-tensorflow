@@ -29,9 +29,20 @@ flags.DEFINE_integer("rnn_hidden_dim", 128, (
 FLAGS = flags.FLAGS
 
 
+def set_train_op(loss, **opts):
+    cost = tf.reduce_mean(loss)
+
+    optim = tf.train.AdamOptimizer(learning_rate=0.005)
+    train_op = optim.minimize(cost)
+    return train_op
+
+
 if __name__ == "__main__":
     path = DATA_PATH[FLAGS.corpus_name]["train"]
     model = Model(path)
+
+    loss = model.g_tensors.loss
+    train_op = set_train_op(loss)
 
     with tf.Session() as sess:
         sess.run(tf.local_variables_initializer())
@@ -42,4 +53,4 @@ if __name__ == "__main__":
         with queue_context(sess):
             epoch_size = 10000
             for _ in tqdm.tqdm(range(epoch_size)):
-                sess.run(model.train_op)
+                sess.run(train_op)
