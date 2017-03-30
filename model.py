@@ -8,6 +8,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 from collections import namedtuple
 
 import tensorflow as tf
@@ -16,7 +17,8 @@ import tensorflow as tf
 from data_loader import build_vocab, preprocess, get_and_run_input_queues
 from layers import (
     embedding_layer, recurrent_layer, reshape_layer, dense_layer, softmax_layer,
-    cross_entropy_layer, sigmoid_cross_entropy_layer, mean_loss_by_example_layer, dropout_layer, relu_layer,
+    cross_entropy_layer, sigmoid_cross_entropy_layer, mean_loss_by_example_layer, 
+    dropout_layer, word_dropout_layer, relu_layer, tanh_layer
 )
 
 # TODO: add to flags
@@ -42,8 +44,10 @@ class Model:
         self.generator_template = tf.make_template("generator", generator)
         self.discriminator_template = tf.make_template("discriminator", discriminator)
 
-        self.g_tensors = self.generator_template(self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=True)
-        self.d_tensors = self.discriminator_template(self.g_tensors[0], self.sequence_length, self.vocab_size, is_real=True)
+        self.g_tensors = self.generator_template(
+            self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=True)
+        self.d_tensors = self.discriminator_template(
+            self.g_tensors[0], self.sequence_length, self.vocab_size, is_real=True)
 
 
 def prepare_data(path, word2idx, batch_size=32):
@@ -53,9 +57,26 @@ def prepare_data(path, word2idx, batch_size=32):
     return enqueue_data, source, target, sequence_length
 
 
-def prepare_decoder():
+def prepare_decoder(embeddings, encoder_state=None):
     from decoders import gumbel_output_fn
 
+    if encoder_state is None:
+        pass
+
+    output_fn = functools.partial(gumbel_output_fn, output_projection=output_projection)
+
+    decoder_fn = gumbel_decoder_fn(output_fn, encoder_state, embeddings, 
+        start_of_sequence_id=2, end_of_sequence_id=3, 
+        maximum_length=tf.reduce_max(sequence_length) + 3, num_decoder_symbols=vocab_size)
+
+    outputs, final_state, final_context_state = seq2seq.dynamic_rnn_decoder(
+            cell, decoder_fn, inputs=None, sequence_length=sequence_length)
+
+    pass
+
+
+def prepare_inputs():
+    # for discriminator
     pass
 
 
@@ -64,7 +85,8 @@ def generator(source, target, sequence_length, vocab_size, is_pretrain=True):
     rnn_outputs = (
         source >>
         embedding_layer(vocab_size, HIDDEN_DIMS, name="embedding_matrix") >>
-        recurrent_layer(sequence_length=sequence_length)
+        word_dropout_layer(keep_prob=0.9) >>
+        recurrent_layer(sequence_length=sequence_length, keep_prob=0.6)
     )
 
     flat_logits = (

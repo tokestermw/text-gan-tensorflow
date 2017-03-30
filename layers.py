@@ -17,8 +17,22 @@ _phase_train = _phase.assign(True)
 _phase_infer = _phase.assign(False)
 
 
+# TODO: move to ops
 def _rank(x):
     return len(x.get_shape())
+
+
+def _dropout_mask(tensor_shape, keep_prob=1.0):
+    random_tensor = keep_prob + tf.random_uniform(tensor_shape, dtype=tf.float32)
+    binary_mask = tf.floor(random_tensor)
+    binary_mask = tf.reciprocal(keep_prob) * binary_mask
+    return binary_mask
+
+
+def _keep_prob(keep_prob):
+    keep_prob = tf.convert_to_tensor(keep_prob, dtype=tf.float32)
+    keep_prob = tf.cond(_phase, lambda: keep_prob, lambda: keep_prob * 0.0 + 1.0)
+    return keep_prob
 
 
 # TODO: add variable scope
@@ -30,13 +44,18 @@ def pipe(func):
             self.func = func
             self.args = args
             self.kwargs = kwargs
+            self.name = self.kwargs.get("name", self.func.__name__)
 
         def __rrshift__(self, other):
-            return self.func(other, *self.args, **self.kwargs)
+            with tf.variable_scope(self.name, None, self.args):
+                out = self.func(other, *self.args, **self.kwargs)
+            return out
 
         def __ror__(self, other):
             # doesn't work for TensorFlow or NumPy object
-            return self.func(other, *self.args, **self.kwargs)
+            with tf.variable_scope(self.name, None, self.args):
+                out = self.func(other, *self.args, **self.kwargs)
+            return out
 
     return Pipe
 
@@ -62,11 +81,15 @@ def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matri
 
 @pipe
 def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, 
+                    keep_prob=1.0,
                     activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None,
-                    return_final_state=False,
-                    **opts):
+                    return_final_state=False, **opts):
     if cell is None:
         cell = tf.contrib.rnn.BasicRNNCell(hidden_dims, activation=activation)#, initializer=initializer)
+
+    if keep_prob < 1.0:
+        keep_prob = _keep_prob(keep_prob)
+        cell = tf.contrib.rnn.DropoutWrapper(cell, keep_prob, keep_prob)
 
     outputs, final_state = tf.nn.dynamic_rnn(cell, tensor, 
         sequence_length=sequence_length, initial_state=initial_state, dtype=tf.float32)
@@ -85,7 +108,7 @@ def reshape_layer(tensor, shape, **opts):
 
 @pipe
 def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
-    tensor_shape = tf.shape(tensor)
+    original_tensor_shape = tf.shape(tensor)
     in_dim = int(tensor.get_shape()[-1])
 
     rank = _rank(tensor)
@@ -106,17 +129,32 @@ def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
     out = tf.add(tf.matmul(tensor, weight), bias)
 
     if rank > 2:
-        out = tf.reshape(out, shape=tensor_shape)
+        # reshape back to time dimension
+        out = tf.reshape(out, shape=original_tensor_shape)
 
     return out
 
 
 @pipe
-def dropout_layer(tensor, keep_prob=1.0):
-    keep_prob = tf.convert_to_tensor(keep_prob, dtype=tf.float32)
-    keep_prob = tf.cond(_phase, lambda: keep_prob, lambda: keep_prob * 0.0 + 1.0)
+def dropout_layer(tensor, keep_prob=1.0, **opts):
+    keep_prob = _keep_prob(keep_prob)
 
     out = tf.nn.dropout(tensor, keep_prob=keep_prob)
+    return out
+
+
+# TODO: should i normalize?
+@pipe
+def word_dropout_layer(tensor, keep_prob=1.0, **opts):
+    keep_prob = _keep_prob(keep_prob)
+
+    rank = _rank(tensor)
+    assert rank == 3, "Use embedding lookup layer"
+
+    binary_mask = _dropout_mask(tf.shape(tensor)[:2], keep_prob)
+    binary_mask = tf.expand_dims(binary_mask, axis=-1)  # for proper broadcasting 
+
+    out = tensor * binary_mask
     return out
 
 
@@ -174,6 +212,11 @@ def conv1d_layer(tensor, dilation_rate=1, **opts):
 
 @pipe
 def residual_layer(tensor, **opts):
+    raise NotImplementedError
+
+
+@pipe
+def highway_layer(tensor, **opts):
     raise NotImplementedError
 
 
