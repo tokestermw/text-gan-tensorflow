@@ -25,8 +25,17 @@ flags.DEFINE_integer("embedding_dim", 128, (
     "Hidden dimensions for embedding."))
 flags.DEFINE_integer("rnn_hidden_dim", 128, (
     "Hidden dimensions for RNN hidden vectors."))
+flags.DEFINE_integer("output_hidden_dim", 128, (
+    "Hidden dimensions for output hidden vectors before softmax layer."))
+flags.DEFINE_float("word_dropout_keep_prob", 0.9, (
+    "Dropout keep rate for word embeddings."))
+flags.DEFINE_float("recurrent_dropout_keep_prob", 0.6, (
+    "Dropout keep rate for recurrent input and output vectors."))
+flags.DEFINE_float("output_dropout_keep_prob", 0.8, (
+    "Dropout keep rate for output vectors."))
 
 FLAGS = flags.FLAGS
+opts = FLAGS.__flags  # dict
 
 
 def set_initial_ops():
@@ -44,14 +53,14 @@ def set_train_op(loss, **opts):
 
 def main():
     path = DATA_PATH[FLAGS.corpus_name]["train"]
-    model = Model(path)
+    model = Model(path, **opts)
 
     g_loss = model.g_tensors_pretrain.loss
     g_train_op = set_train_op(g_loss)
 
     d_loss_real = model.d_tensors_real.loss
     d_loss_generated = model.d_tensors_generated.loss
-    d_loss = tf.reduce_mean(tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated))
+    d_loss = tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)
     d_train_op = set_train_op(d_loss)
 
     local_init_op, global_init_op = set_initial_ops()

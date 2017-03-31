@@ -41,6 +41,7 @@ def gumbel_decoder_fn(encoder_state, embedding_matrix, output_projections, maxim
         with ops.name_scope(name, "gumbel_decoder_fn",
                             [time, cell_state, cell_input, cell_output, context_state]):
             if cell_input is not None:
+                # -- not None if training
                 raise ValueError("Expected cell_input to be None, but saw: %s" %
                                  cell_input)
             if cell_output is None:

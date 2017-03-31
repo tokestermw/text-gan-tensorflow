@@ -44,7 +44,7 @@ def start_threads(thread_fn, args, n_threads=8):
     threads = []
     for n in range(n_threads):
         t = threading.Thread(target=thread_fn, args=args)
-        t.daemon = True # thread will close when parent quits
+        t.daemon = True  # thread will close when parent quits
         t.start()
         threads.append(t)
 

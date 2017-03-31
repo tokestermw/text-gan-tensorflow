@@ -22,9 +22,6 @@ from layers import (
 )
 from decoders import gumbel_decoder_fn
 
-# TODO: add to flags
-HIDDEN_DIMS = 128
-
 GeneratorTuple = namedtuple("Generator", 
     ["rnn_outputs", "flat_logits", "probs", "loss"])
 DiscriminatorTuple = namedtuple("Discriminator", 
@@ -32,10 +29,10 @@ DiscriminatorTuple = namedtuple("Discriminator",
 
 
 class Model:
-    def __init__(self, path, **model_params):
+    def __init__(self, path, **opts):
         self.path = path
-        # TODO: generalize model_params
-        self.model_params = model_params
+        # TODO: generalize flags
+        self.opts = opts
 
         self.word2idx, self.idx2word = build_vocab(self.path)
         self.vocab_size = len(self.word2idx)
@@ -47,19 +44,19 @@ class Model:
         self.discriminator_template = tf.make_template("discriminator", discriminator)
 
         self.g_tensors_pretrain = self.generator_template(
-            self.source, self.target, self.sequence_length, self.vocab_size)
+            self.source, self.target, self.sequence_length, self.vocab_size, **opts)
 
         self.decoder_fn = prepare_custom_decoder(self.sequence_length)
 
         self.g_tensors_generated = self.generator_template(
-            self.source, self.target, self.sequence_length, self.vocab_size, decoder_fn=self.decoder_fn)
+            self.source, self.target, self.sequence_length, self.vocab_size, decoder_fn=self.decoder_fn, **opts)
 
         self.d_tensors_real = self.discriminator_template(
-            self.g_tensors_pretrain.rnn_outputs, self.sequence_length, is_real=True)
+            self.g_tensors_pretrain.rnn_outputs, self.sequence_length, is_real=True, **opts)
 
         # TODO: sequence_length is wrong from data
         self.d_tensors_generated = self.discriminator_template(
-            self.g_tensors_generated.rnn_outputs, self.sequence_length, is_real=False)
+            self.g_tensors_generated.rnn_outputs, self.sequence_length, is_real=False, **opts)
 
 
 def prepare_data(path, word2idx, batch_size=32):
@@ -87,25 +84,26 @@ def prepare_inputs():
     pass
 
 
-def generator(source, target, sequence_length, vocab_size, decoder_fn=None):
+def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **opts):
     """
     Args:
         source: TensorFlow queue or placeholder object for word ids for source 
         target: TensorFlow queue or placeholder object for word ids for target
-        sequence_length: 
+        sequence_length: TensorFlow queue or placeholder object for word ids for target
         vocab_size:
         is_pretrain:
     """
     rnn_outputs = (
         source >>
-        embedding_layer(vocab_size, HIDDEN_DIMS, name="embedding_matrix") >>
-        word_dropout_layer(keep_prob=0.9) >>
-        recurrent_layer(sequence_length=sequence_length, keep_prob=0.6, decoder_fn=decoder_fn, name="rnn_cell")
+        embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix") >>
+        word_dropout_layer(keep_prob=opts["word_dropout_keep_prob"]) >>
+        recurrent_layer(hidden_dims=opts["rnn_hidden_dim"], keep_prob=opts["recurrent_dropout_keep_prob"], 
+            sequence_length=sequence_length, decoder_fn=decoder_fn, name="rnn_cell")
     )
 
     flat_logits = (
         rnn_outputs >>
-        reshape_layer(shape=(-1, HIDDEN_DIMS)) >>
+        reshape_layer(shape=(-1, opts["rnn_hidden_dim"])) >>
         dense_layer(hidden_dims=vocab_size, name="output_projections")
     )
 
@@ -125,7 +123,7 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None):
     return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=loss)
 
 
-def discriminator(input_vectors, sequence_length, is_real=True):
+def discriminator(input_vectors, sequence_length, is_real=True, **opts):
     """
     Args:
         input_vectors:
@@ -134,18 +132,18 @@ def discriminator(input_vectors, sequence_length, is_real=True):
     """
     rnn_final_state = (
         input_vectors >> 
-        dense_layer(hidden_dims=HIDDEN_DIMS) >>  # projection layer keep shape [B, T, H]
-        recurrent_layer(sequence_length=sequence_length, hidden_dims=128, return_final_state=True)
+        dense_layer(hidden_dims=opts["embedding_dim"]) >>  # projection layer keep shape [B, T, H]
+        recurrent_layer(sequence_length=sequence_length, hidden_dims=opts["rnn_hidden_dim"], return_final_state=True)
     )
 
     prediction_logits = (
         rnn_final_state >>
-        dense_layer(hidden_dims=HIDDEN_DIMS) >> 
+        dense_layer(hidden_dims=opts["output_hidden_dim"]) >> 
         relu_layer() >>
-        dropout_layer() >>
-        dense_layer(hidden_dims=HIDDEN_DIMS) >>
+        dropout_layer(opts["output_dropout_keep_prob"]) >>
+        dense_layer(hidden_dims=opts["output_hidden_dim"]) >>
         relu_layer() >>
-        dropout_layer() >>
+        dropout_layer(opts["output_dropout_keep_prob"]) >>
         dense_layer(hidden_dims=1)
     )
 
