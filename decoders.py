@@ -20,6 +20,9 @@ from tensorflow.python.ops import array_ops, control_flow_ops, variable_scope as
 from distributions import gumbel_softmax
 
 
+# TODO: should we output 1) predicted argmax ids? 2) input embeddings? 3) target embeddings?
+# TODO: hard to return states (which are important for downstream tasks): so rewrite seq2seq.dynamic_rnn_decoder
+# TODO: keep sequence_length in next_context_state?
 def gumbel_decoder_fn(encoder_state, embedding_matrix, output_projections, maximum_length,
                       start_of_sequence_id=2, end_of_sequence_id=3, temperature=1.0,
                       name=None):
@@ -47,8 +50,7 @@ def gumbel_decoder_fn(encoder_state, embedding_matrix, output_projections, maxim
                 next_cell_input = tf.reshape(tf.tile(embedding_matrix[start_of_sequence_id], [batch_size]),
                                              shape=tf.shape(encoder_state))
                 emit_output = cell_output
-                # only next_context_state is returned from the rnn so save the next_cell_input in next_context_state
-                next_context_state = next_cell_input  # context_state
+                next_context_state = context_state
 
             else:
                 # -- transition function
@@ -68,8 +70,7 @@ def gumbel_decoder_fn(encoder_state, embedding_matrix, output_projections, maxim
 
                 next_cell_state = cell_state
                 emit_output = cell_output
-                # only next_context_state is returned from the rnn so save the next_cell_input in next_context_state
-                next_context_state = next_cell_input  # context_state
+                next_context_state = context_state
 
             next_done = control_flow_ops.cond(math_ops.greater(time, maximum_length),
                                          lambda: array_ops.ones([batch_size, ], dtype=dtypes.bool),

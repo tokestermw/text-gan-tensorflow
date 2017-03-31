@@ -14,7 +14,6 @@ import tensorflow as tf
 # -- local imports
 from utils import maybe_save, start_threads
 
-
 DATA_DIR = "data"
 DATA_PATH = {
     "ptb": {

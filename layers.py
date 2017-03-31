@@ -75,8 +75,9 @@ def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matri
 
 @pipe
 def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, decoder_fn=None, 
-                    activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None, keep_prob=1.0,
-                    return_final_state=False, **opts):
+                    activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None, 
+                    keep_prob=1.0,
+                    return_final_state=False, return_next_cell_input=True, **opts):
     if cell is None:
         cell = tf.contrib.rnn.BasicRNNCell(hidden_dims, activation=activation)
 
@@ -92,10 +93,9 @@ def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, de
             sequence_length=sequence_length, initial_state=initial_state, dtype=tf.float32)
         final_context_state = None
     else:
-        # TODO: set the decoder here?
+        # TODO: turn off sequence_length?
         outputs, final_state, final_context_state = seq2seq.dynamic_rnn_decoder(
             cell, decoder_fn, inputs=None, sequence_length=sequence_length)
-        next_cell_input = final_context_state  # TODO: this might change
 
     if return_final_state:
         return final_state

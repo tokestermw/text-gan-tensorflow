@@ -47,19 +47,19 @@ class Model:
         self.discriminator_template = tf.make_template("discriminator", discriminator)
 
         self.g_tensors_pretrain = self.generator_template(
-            self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=True)
+            self.source, self.target, self.sequence_length, self.vocab_size)
 
-        self.g_tensors_generator = self.generator_template(
-            self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=False)
+        self.decoder_fn = prepare_custom_decoder(self.sequence_length)
 
-        # # get embeddings from target
-        # prepare_inputs_for_discriminator()
+        self.g_tensors_generated = self.generator_template(
+            self.source, self.target, self.sequence_length, self.vocab_size, decoder_fn=self.decoder_fn)
 
-        # self.d_tensors_real = self.discriminator_template(
-        #     self.g_tensors_generate[0], self.decoder_fn, self.sequence_length, is_real=True)
+        self.d_tensors_real = self.discriminator_template(
+            self.g_tensors_pretrain.rnn_outputs, self.sequence_length, is_real=True)
 
-        # self.d_tensors_generated = self.discriminator_template(
-        #     self.g_tensors_generate[0], self.decoder_fn, self.sequence_length, is_real=False)
+        # TODO: sequence_length is wrong from data
+        self.d_tensors_generated = self.discriminator_template(
+            self.g_tensors_generated.rnn_outputs, self.sequence_length, is_real=False)
 
 
 def prepare_data(path, word2idx, batch_size=32):
@@ -69,8 +69,8 @@ def prepare_data(path, word2idx, batch_size=32):
     return enqueue_data, source, target, sequence_length
 
 
-def prepare_decoder(sequence_length):
-    # TODO: confusing? global variables
+def prepare_custom_decoder(sequence_length):
+    # TODO: is this confusing? global variables
     cell = tf.get_collection("rnn_cell")[0]
     encoder_state = cell.zero_state(tf.shape(sequence_length)[0], tf.float32)
 
@@ -83,18 +83,19 @@ def prepare_decoder(sequence_length):
     return decoder_fn
 
 
-def prepare_inputs_for_discriminator():
-
+def prepare_inputs():
     pass
 
 
-def generator(source, target, sequence_length, vocab_size, is_pretrain=True):
-
-    if is_pretrain:
-        decoder_fn = None
-    else:
-        decoder_fn = prepare_decoder(sequence_length)
-
+def generator(source, target, sequence_length, vocab_size, decoder_fn=None):
+    """
+    Args:
+        source: TensorFlow queue or placeholder object for word ids for source 
+        target: TensorFlow queue or placeholder object for word ids for target
+        sequence_length: 
+        vocab_size:
+        is_pretrain:
+    """
     rnn_outputs = (
         source >>
         embedding_layer(vocab_size, HIDDEN_DIMS, name="embedding_matrix") >>
@@ -110,6 +111,10 @@ def generator(source, target, sequence_length, vocab_size, is_pretrain=True):
 
     probs = flat_logits >> softmax_layer() >> reshape_layer(shape=tf.shape(target))
 
+    if decoder_fn is not None:
+        return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=None)
+
+    # TODO: return cost
     loss = (
         flat_logits >> 
         cross_entropy_layer(target=target) >>
@@ -120,9 +125,12 @@ def generator(source, target, sequence_length, vocab_size, is_pretrain=True):
     return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=loss)
 
 
-def discriminator(input_vectors, decoder_fn, sequence_length, is_real=True):
+def discriminator(input_vectors, sequence_length, is_real=True):
     """
     Args:
+        input_vectors:
+        sequence_length:
+        is_real: 
     """
     rnn_final_state = (
         input_vectors >> 

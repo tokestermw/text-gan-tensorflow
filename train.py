@@ -29,28 +29,44 @@ flags.DEFINE_integer("rnn_hidden_dim", 128, (
 FLAGS = flags.FLAGS
 
 
+def set_initial_ops():
+    local_init_op = tf.local_variables_initializer()
+    global_init_op = tf.global_variables_initializer()
+    return local_init_op, global_init_op
+
+
 def set_train_op(loss, **opts):
     cost = tf.reduce_mean(loss)
-
     optim = tf.train.AdamOptimizer(learning_rate=0.005)
     train_op = optim.minimize(cost)
     return train_op
 
 
-if __name__ == "__main__":
+def main():
     path = DATA_PATH[FLAGS.corpus_name]["train"]
     model = Model(path)
 
-    loss = model.g_tensors_pretrain.loss
-    train_op = set_train_op(loss)
+    g_loss = model.g_tensors_pretrain.loss
+    g_train_op = set_train_op(g_loss)
+
+    d_loss_real = model.d_tensors_real.loss
+    d_loss_generated = model.d_tensors_generated.loss
+    d_loss = tf.reduce_mean(tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated))
+    d_train_op = set_train_op(d_loss)
+
+    local_init_op, global_init_op = set_initial_ops()
 
     with tf.Session() as sess:
-        sess.run(tf.local_variables_initializer())
-        sess.run(tf.global_variables_initializer())
+        sess.run([local_init_op, global_init_op])
 
-        start_threads(model.enqueue_data, (sess, ))
+        threads = start_threads(model.enqueue_data, (sess, ))
 
         with queue_context(sess):
             epoch_size = 10000
             for _ in tqdm.tqdm(range(epoch_size)):
-                sess.run(train_op)
+                sess.run(g_train_op)
+                sess.run(d_train_op)
+
+
+if __name__ == "__main__":
+    main()
