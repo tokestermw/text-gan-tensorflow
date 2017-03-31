@@ -34,6 +34,7 @@ DiscriminatorTuple = namedtuple("Discriminator",
 class Model:
     def __init__(self, path, **model_params):
         self.path = path
+        # TODO: generalize model_params
         self.model_params = model_params
 
         self.word2idx, self.idx2word = build_vocab(self.path)
@@ -48,11 +49,11 @@ class Model:
         self.g_tensors_pretrain = self.generator_template(
             self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=True)
 
-        self.g_tensors_generate = self.generator_template(
+        self.g_tensors_generator = self.generator_template(
             self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=False)
 
         # # get embeddings from target
-        # prepare_inputs()
+        # prepare_inputs_for_discriminator()
 
         # self.d_tensors_real = self.discriminator_template(
         #     self.g_tensors_generate[0], self.decoder_fn, self.sequence_length, is_real=True)
@@ -69,6 +70,7 @@ def prepare_data(path, word2idx, batch_size=32):
 
 
 def prepare_decoder(sequence_length):
+    # TODO: confusing? global variables
     cell = tf.get_collection("rnn_cell")[0]
     encoder_state = cell.zero_state(tf.shape(sequence_length)[0], tf.float32)
 
@@ -81,18 +83,16 @@ def prepare_decoder(sequence_length):
     return decoder_fn
 
 
-def prepare_inputs():
-    # for discriminator
+def prepare_inputs_for_discriminator():
+
     pass
 
 
-# TODO: generalize model_params
 def generator(source, target, sequence_length, vocab_size, is_pretrain=True):
 
     if is_pretrain:
         decoder_fn = None
     else:
-        # TODO: confusing global variables
         decoder_fn = prepare_decoder(sequence_length)
 
     rnn_outputs = (
