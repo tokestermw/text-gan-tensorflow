@@ -20,6 +20,7 @@ from layers import (
     cross_entropy_layer, sigmoid_cross_entropy_layer, mean_loss_by_example_layer, 
     dropout_layer, word_dropout_layer, relu_layer, tanh_layer
 )
+from decoders import gumbel_decoder_fn
 
 # TODO: add to flags
 HIDDEN_DIMS = 128
@@ -44,10 +45,20 @@ class Model:
         self.generator_template = tf.make_template("generator", generator)
         self.discriminator_template = tf.make_template("discriminator", discriminator)
 
-        self.g_tensors = self.generator_template(
+        self.g_tensors_pretrain = self.generator_template(
             self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=True)
-        self.d_tensors = self.discriminator_template(
-            self.g_tensors[0], self.sequence_length, self.vocab_size, is_real=True)
+
+        self.g_tensors_generate = self.generator_template(
+            self.source, self.target, self.sequence_length, self.vocab_size, is_pretrain=False)
+
+        # # get embeddings from target
+        # prepare_inputs()
+
+        # self.d_tensors_real = self.discriminator_template(
+        #     self.g_tensors_generate[0], self.decoder_fn, self.sequence_length, is_real=True)
+
+        # self.d_tensors_generated = self.discriminator_template(
+        #     self.g_tensors_generate[0], self.decoder_fn, self.sequence_length, is_real=False)
 
 
 def prepare_data(path, word2idx, batch_size=32):
@@ -57,22 +68,17 @@ def prepare_data(path, word2idx, batch_size=32):
     return enqueue_data, source, target, sequence_length
 
 
-def prepare_decoder(embeddings, encoder_state=None):
-    from decoders import gumbel_output_fn
+def prepare_decoder(sequence_length):
+    cell = tf.get_collection("rnn_cell")[0]
+    encoder_state = cell.zero_state(tf.shape(sequence_length)[0], tf.float32)
 
-    if encoder_state is None:
-        pass
+    embedding_matrix = tf.get_collection("embedding_matrix")[0]
+    output_projections = tf.get_collection("output_projections")
 
-    output_fn = functools.partial(gumbel_output_fn, output_projection=output_projection)
+    maximum_length = tf.reduce_max(sequence_length) + 3
 
-    decoder_fn = gumbel_decoder_fn(output_fn, encoder_state, embeddings, 
-        start_of_sequence_id=2, end_of_sequence_id=3, 
-        maximum_length=tf.reduce_max(sequence_length) + 3, num_decoder_symbols=vocab_size)
-
-    outputs, final_state, final_context_state = seq2seq.dynamic_rnn_decoder(
-            cell, decoder_fn, inputs=None, sequence_length=sequence_length)
-
-    pass
+    decoder_fn = gumbel_decoder_fn(encoder_state, embedding_matrix, output_projections, maximum_length)
+    return decoder_fn
 
 
 def prepare_inputs():
@@ -82,11 +88,18 @@ def prepare_inputs():
 
 # TODO: generalize model_params
 def generator(source, target, sequence_length, vocab_size, is_pretrain=True):
+
+    if is_pretrain:
+        decoder_fn = None
+    else:
+        # TODO: confusing global variables
+        decoder_fn = prepare_decoder(sequence_length)
+
     rnn_outputs = (
         source >>
         embedding_layer(vocab_size, HIDDEN_DIMS, name="embedding_matrix") >>
         word_dropout_layer(keep_prob=0.9) >>
-        recurrent_layer(sequence_length=sequence_length, keep_prob=0.6)
+        recurrent_layer(sequence_length=sequence_length, keep_prob=0.6, decoder_fn=decoder_fn, name="rnn_cell")
     )
 
     flat_logits = (
@@ -107,14 +120,14 @@ def generator(source, target, sequence_length, vocab_size, is_pretrain=True):
     return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=loss)
 
 
-def discriminator(input_vectors, sequence_length, vocab_size, is_real=True):
+def discriminator(input_vectors, decoder_fn, sequence_length, is_real=True):
     """
     Args:
     """
     rnn_final_state = (
         input_vectors >> 
         dense_layer(hidden_dims=HIDDEN_DIMS) >>  # projection layer keep shape [B, T, H]
-        recurrent_layer(sequence_length=sequence_length, return_final_state=True)
+        recurrent_layer(sequence_length=sequence_length, hidden_dims=128, return_final_state=True)
     )
 
     prediction_logits = (

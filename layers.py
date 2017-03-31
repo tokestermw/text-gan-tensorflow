@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from functools import partial, wraps
 
 import tensorflow as tf
+from tensorflow.contrib import seq2seq
 
 
 _phase = tf.Variable(False, name='phase', trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES])
@@ -22,21 +23,19 @@ def _rank(x):
     return len(x.get_shape())
 
 
-def _dropout_mask(tensor_shape, keep_prob=1.0):
+def _apply_dropout_mask(tensor_shape, keep_prob=1.0):
     random_tensor = keep_prob + tf.random_uniform(tensor_shape, dtype=tf.float32)
     binary_mask = tf.floor(random_tensor)
     binary_mask = tf.reciprocal(keep_prob) * binary_mask
     return binary_mask
 
 
-def _keep_prob(keep_prob):
+def _global_keep_prob(keep_prob):
     keep_prob = tf.convert_to_tensor(keep_prob, dtype=tf.float32)
     keep_prob = tf.cond(_phase, lambda: keep_prob, lambda: keep_prob * 0.0 + 1.0)
     return keep_prob
 
 
-# TODO: add variable scope
-# TODO: is_train change
 def pipe(func):
 
     class Pipe(object):
@@ -47,12 +46,7 @@ def pipe(func):
             self.name = self.kwargs.get("name", self.func.__name__)
 
         def __rrshift__(self, other):
-            with tf.variable_scope(self.name, None, self.args):
-                out = self.func(other, *self.args, **self.kwargs)
-            return out
-
-        def __ror__(self, other):
-            # doesn't work for TensorFlow or NumPy object
+            # >>
             with tf.variable_scope(self.name, None, self.args):
                 out = self.func(other, *self.args, **self.kwargs)
             return out
@@ -80,19 +74,28 @@ def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matri
 
 
 @pipe
-def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, 
-                    keep_prob=1.0,
-                    activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None,
+def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, decoder_fn=None, 
+                    activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None, keep_prob=1.0,
                     return_final_state=False, **opts):
     if cell is None:
-        cell = tf.contrib.rnn.BasicRNNCell(hidden_dims, activation=activation)#, initializer=initializer)
+        cell = tf.contrib.rnn.BasicRNNCell(hidden_dims, activation=activation)
 
     if keep_prob < 1.0:
-        keep_prob = _keep_prob(keep_prob)
+        keep_prob = _global_keep_prob(keep_prob)
         cell = tf.contrib.rnn.DropoutWrapper(cell, keep_prob, keep_prob)
 
-    outputs, final_state = tf.nn.dynamic_rnn(cell, tensor, 
-        sequence_length=sequence_length, initial_state=initial_state, dtype=tf.float32)
+    if opts.get("name"):
+        tf.add_to_collection(opts.get("name"), cell)
+
+    if decoder_fn is None:
+        outputs, final_state = tf.nn.dynamic_rnn(cell, tensor, 
+            sequence_length=sequence_length, initial_state=initial_state, dtype=tf.float32)
+        final_context_state = None
+    else:
+        # TODO: set the decoder here?
+        outputs, final_state, final_context_state = seq2seq.dynamic_rnn_decoder(
+            cell, decoder_fn, inputs=None, sequence_length=sequence_length)
+        next_cell_input = final_context_state  # TODO: this might change
 
     if return_final_state:
         return final_state
@@ -137,8 +140,7 @@ def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
 
 @pipe
 def dropout_layer(tensor, keep_prob=1.0, **opts):
-    keep_prob = _keep_prob(keep_prob)
-
+    keep_prob = _global_keep_prob(keep_prob)
     out = tf.nn.dropout(tensor, keep_prob=keep_prob)
     return out
 
@@ -146,13 +148,13 @@ def dropout_layer(tensor, keep_prob=1.0, **opts):
 # TODO: should i normalize?
 @pipe
 def word_dropout_layer(tensor, keep_prob=1.0, **opts):
-    keep_prob = _keep_prob(keep_prob)
+    keep_prob = _global_keep_prob(keep_prob)
 
     rank = _rank(tensor)
     assert rank == 3, "Use embedding lookup layer"
 
-    binary_mask = _dropout_mask(tf.shape(tensor)[:2], keep_prob)
-    binary_mask = tf.expand_dims(binary_mask, axis=-1)  # for proper broadcasting 
+    binary_mask = _apply_dropout_mask(tf.shape(tensor)[:2], keep_prob)
+    binary_mask = tf.expand_dims(binary_mask, axis=-1)  # proper broadcasting to zero out entire word vectors
 
     out = tensor * binary_mask
     return out
