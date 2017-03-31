@@ -41,7 +41,7 @@ if __name__ == "__main__":
     path = DATA_PATH[FLAGS.corpus_name]["train"]
     model = Model(path)
 
-    loss = model.g_tensors.loss
+    loss = model.g_tensors_pretrain.loss
     train_op = set_train_op(loss)
 
     with tf.Session() as sess:
