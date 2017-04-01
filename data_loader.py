@@ -68,13 +68,13 @@ def preprocess(data):
     return source, target, sequence_length
 
 
-def get_and_run_input_queues(path, word2idx, batch_size=32):
+def get_and_run_input_queues(path, word2idx, batch_size=32, epoch_size=10):
     input_ph = tf.placeholder(tf.int32, shape=[None])  # [B, T]
     queue = tf.PaddingFIFOQueue(shapes=[[None, ]], dtypes=[tf.int32], capacity=5000,)
 
     # TODO: enqueue_many would be faster, would require batch and padding at numpy-level
     enqueue_op = queue.enqueue([input_ph])
-    def enqueue_data(sess, epoch_size=10):
+    def enqueue_data(sess):
         for epoch in range(epoch_size):
             for idx, line in enumerate(read_data(path)):
                 v = vectorize(line, word2idx)

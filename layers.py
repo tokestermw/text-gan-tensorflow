@@ -49,6 +49,8 @@ def pipe(func):
             # >>
             with tf.variable_scope(self.name, None, self.args):
                 out = self.func(other, *self.args, **self.kwargs)
+            tf.logging.info("{} {} {} -> {}".format(
+                self.name, "shape", str(other.get_shape()), str(out.get_shape())))
             return out
 
     return Pipe

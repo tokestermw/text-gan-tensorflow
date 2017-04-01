@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import tqdm
 
 import tensorflow as tf
@@ -21,6 +22,10 @@ flags.DEFINE_string("corpus_name", "ptb", (
     "Corpus name."))
 flags.DEFINE_integer("batch_size", 32, (
     "Batch size for dequeue."))
+flags.DEFINE_integer("epoch_size", 10, (
+    "Max epochs."))
+flags.DEFINE_float("learning_rate", 0.005, (
+    "Learning rate for optimizer."))
 flags.DEFINE_integer("embedding_dim", 128, (
     "Hidden dimensions for embedding."))
 flags.DEFINE_integer("rnn_hidden_dim", 128, (
@@ -46,7 +51,7 @@ def set_initial_ops():
 
 def set_train_op(loss, **opts):
     cost = tf.reduce_mean(loss)
-    optim = tf.train.AdamOptimizer(learning_rate=0.005)
+    optim = tf.train.AdamOptimizer(learning_rate=opts["learning_rate"])
     train_op = optim.minimize(cost)
     return train_op
 
@@ -56,12 +61,12 @@ def main():
     model = Model(path, **opts)
 
     g_loss = model.g_tensors_pretrain.loss
-    g_train_op = set_train_op(g_loss)
+    g_train_op = set_train_op(g_loss, **opts)
 
     d_loss_real = model.d_tensors_real.loss
     d_loss_generated = model.d_tensors_generated.loss
     d_loss = tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)
-    d_train_op = set_train_op(d_loss)
+    d_train_op = set_train_op(d_loss, **opts)
 
     local_init_op, global_init_op = set_initial_ops()
 
@@ -78,4 +83,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.info(json.dumps(opts, indent=4))
     main()

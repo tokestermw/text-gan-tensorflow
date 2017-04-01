@@ -31,37 +31,37 @@ DiscriminatorTuple = namedtuple("Discriminator",
 class Model:
     def __init__(self, path, **opts):
         self.path = path
-        # TODO: generalize flags
         self.opts = opts
 
         self.word2idx, self.idx2word = build_vocab(self.path)
         self.vocab_size = len(self.word2idx)
 
         self.enqueue_data, self.source, self.target, self.sequence_length = \
-            prepare_data(self.path, self.word2idx)
+            prepare_data(self.path, self.word2idx, **self.opts)
 
         self.generator_template = tf.make_template("generator", generator)
         self.discriminator_template = tf.make_template("discriminator", discriminator)
 
         self.g_tensors_pretrain = self.generator_template(
-            self.source, self.target, self.sequence_length, self.vocab_size, **opts)
+            self.source, self.target, self.sequence_length, self.vocab_size, **self.opts)
 
         self.decoder_fn = prepare_custom_decoder(self.sequence_length)
 
         self.g_tensors_generated = self.generator_template(
-            self.source, self.target, self.sequence_length, self.vocab_size, decoder_fn=self.decoder_fn, **opts)
+            self.source, self.target, self.sequence_length, self.vocab_size, decoder_fn=self.decoder_fn, **self.opts)
 
         self.d_tensors_real = self.discriminator_template(
-            self.g_tensors_pretrain.rnn_outputs, self.sequence_length, is_real=True, **opts)
+            self.g_tensors_pretrain.rnn_outputs, self.sequence_length, is_real=True, **self.opts)
 
         # TODO: sequence_length is wrong from data
         self.d_tensors_generated = self.discriminator_template(
-            self.g_tensors_generated.rnn_outputs, self.sequence_length, is_real=False, **opts)
+            self.g_tensors_generated.rnn_outputs, self.sequence_length, is_real=False, **self.opts)
 
 
-def prepare_data(path, word2idx, batch_size=32):
+def prepare_data(path, word2idx, **opts):
     with tf.device("/cpu:0"):
-        enqueue_data, dequeue_batch = get_and_run_input_queues(path, word2idx, batch_size=batch_size)
+        enqueue_data, dequeue_batch = get_and_run_input_queues(
+            path, word2idx, batch_size=opts["batch_size"], epoch_size=opts["epoch_size"])
         source, target, sequence_length = preprocess(dequeue_batch)
     return enqueue_data, source, target, sequence_length
 
@@ -93,6 +93,8 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
         vocab_size:
         is_pretrain:
     """
+    tf.logging.info(" --- Setting up generator")
+
     rnn_outputs = (
         source >>
         embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix") >>
@@ -130,6 +132,8 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
         sequence_length:
         is_real: 
     """
+    tf.logging.info(" --- Setting up discriminator")
+
     rnn_final_state = (
         input_vectors >> 
         dense_layer(hidden_dims=opts["embedding_dim"]) >>  # projection layer keep shape [B, T, H]
@@ -160,6 +164,7 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
 
 if __name__ == "__main__":
     from data_loader import DATA_PATH
+    from train import opts
     path = DATA_PATH["ptb"]["train"]
 
-    model = Model(path)
+    model = Model(path, **opts)
