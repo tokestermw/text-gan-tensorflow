@@ -24,6 +24,8 @@ DATA_PATH = {
     }
 }
 
+SPECIAL_TOKENS = { "_PAD": 0, "_OOV": 1, "_START": 2, "_END": 3}
+
 
 # TODO: spacy tokenizer
 def tokenize(line):
@@ -40,7 +42,7 @@ def read_data(path):
 # TODO: make save_path a command line option
 # TODO: add padding, oov, start, end symbols to vocab
 @maybe_save(save_path=DATA_PATH["ptb"]["vocab"])
-def build_vocab(path):
+def build_vocab(path, min_counts=10):
     counts = Counter()
 
     for line in read_data(path):
@@ -48,7 +50,9 @@ def build_vocab(path):
         for token in tokens:
             counts[token] += 1
 
-    word2idx = {word: idx for idx, (word, count) in enumerate(counts.most_common())}
+    word2idx = {word: idx + len(SPECIAL_TOKENS) for idx, (word, count) in enumerate(counts.most_common()) if count > min_counts}
+    word2idx.update(SPECIAL_TOKENS)
+
     idx2word = {idx: word for word, idx in word2idx.items()}
 
     return word2idx, idx2word
@@ -56,16 +60,20 @@ def build_vocab(path):
 
 def vectorize(line, word2idx):
     tokens = tokenize(line)
-    vector = [word2idx[token] for token in tokens]
+    vector = [word2idx.get(token, SPECIAL_TOKENS["_OOV"]) for token in tokens]
     return vector
 
 
-# TODO: get maximum sequence_length and limit it
 def preprocess(data):
+    # PaddingFIFOQueue pads to the max size seen in the data (instead of the minibatch)
+    # by chopping off the ends, this limits redundant computations in the output layer
+    sequence_length = tf.reduce_sum(tf.cast(tf.not_equal(data, 0), dtype=tf.int32), axis=1)
+    maximum_sequence_length = tf.reduce_max(sequence_length)
+    data = data[:maximum_sequence_length] 
+
     source = data[:, :-1]
     target = data[:, 1:]
-    sequence_length = tf.reduce_sum(tf.cast(tf.not_equal(target, 0), dtype=tf.int32), axis=1)
-    return source, target, sequence_length
+    return source, target, sequence_length - 1
 
 
 def get_and_run_input_queues(path, word2idx, batch_size=32, epoch_size=10):
@@ -79,9 +87,6 @@ def get_and_run_input_queues(path, word2idx, batch_size=32, epoch_size=10):
             for idx, line in enumerate(read_data(path)):
                 v = vectorize(line, word2idx)
                 sess.run(enqueue_op, feed_dict={input_ph: v})
-
-    # queue_runner = tf.train.QueueRunner(queue, [enqueue_op] * 8)
-    # tf.train.add_queue_runner(queue_runner)
 
     dequeue_op = queue.dequeue()
     dequeue_batch = tf.train.batch([dequeue_op], batch_size=batch_size, capacity=1000, 

@@ -50,12 +50,13 @@ class Model:
         self.g_tensors_generated = self.generator_template(
             self.source, self.target, self.sequence_length, self.vocab_size, decoder_fn=self.decoder_fn, **self.opts)
 
+        # TODO: using the rnn outputs from pretraining as "real" instead of target embeddings (aka professor forcing)
         self.d_tensors_real = self.discriminator_template(
             self.g_tensors_pretrain.rnn_outputs, self.sequence_length, is_real=True, **self.opts)
 
-        # TODO: sequence_length is wrong from data
+        # TODO: check to see if sequence_length is correct
         self.d_tensors_generated = self.discriminator_template(
-            self.g_tensors_generated.rnn_outputs, self.sequence_length, is_real=False, **self.opts)
+            self.g_tensors_generated.rnn_outputs, None, is_real=False, **self.opts)
 
 
 def prepare_data(path, word2idx, **opts):
@@ -87,11 +88,11 @@ def prepare_inputs():
 def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **opts):
     """
     Args:
-        source: TensorFlow queue or placeholder object for word ids for source 
-        target: TensorFlow queue or placeholder object for word ids for target
-        sequence_length: TensorFlow queue or placeholder object for word ids for target
-        vocab_size:
-        is_pretrain:
+        source: TensorFlow queue or placeholder tensor for word ids for source 
+        target: TensorFlow queue or placeholder tensor for word ids for target
+        sequence_length: TensorFlow queue or placeholder tensor for word ids for target
+        vocab_size: max vocab size determined from data
+        decoder_fn: if using custom decoder_fn else use the default dynamic_rnn
     """
     tf.logging.info(" --- Setting up generator")
 

@@ -18,6 +18,7 @@ logging = tf.logging
 
 logging.set_verbosity(logging.INFO)
 
+# -- train options
 flags.DEFINE_string("corpus_name", "ptb", (
     "Corpus name."))
 flags.DEFINE_integer("batch_size", 32, (
@@ -26,6 +27,8 @@ flags.DEFINE_integer("epoch_size", 10, (
     "Max epochs."))
 flags.DEFINE_float("learning_rate", 0.005, (
     "Learning rate for optimizer."))
+
+# -- model options
 flags.DEFINE_integer("embedding_dim", 128, (
     "Hidden dimensions for embedding."))
 flags.DEFINE_integer("rnn_hidden_dim", 128, (
@@ -56,6 +59,10 @@ def set_train_op(loss, **opts):
     return train_op
 
 
+def _get_epoch_size(batch_size, corpus_size):
+    pass
+
+
 def main():
     path = DATA_PATH[FLAGS.corpus_name]["train"]
     model = Model(path, **opts)
@@ -65,7 +72,7 @@ def main():
 
     d_loss_real = model.d_tensors_real.loss
     d_loss_generated = model.d_tensors_generated.loss
-    d_loss = tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)
+    d_loss = (tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)) / 2.0
     d_train_op = set_train_op(d_loss, **opts)
 
     local_init_op, global_init_op = set_initial_ops()
@@ -78,8 +85,7 @@ def main():
         with queue_context(sess):
             epoch_size = 10000
             for _ in tqdm.tqdm(range(epoch_size)):
-                sess.run(g_train_op)
-                sess.run(d_train_op)
+                sess.run([g_train_op, d_train_op])
 
 
 if __name__ == "__main__":
