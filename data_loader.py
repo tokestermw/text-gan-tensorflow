@@ -40,12 +40,13 @@ def read_data(path):
 
 
 # TODO: make save_path a command line option
-# TODO: add padding, oov, start, end symbols to vocab
 @maybe_save(save_path=DATA_PATH["ptb"]["vocab"])
 def build_vocab(path, min_counts=10):
     counts = Counter()
 
+    corpus_size = 0
     for line in read_data(path):
+        corpus_size += 1
         tokens = tokenize(line)
         for token in tokens:
             counts[token] += 1
@@ -55,12 +56,13 @@ def build_vocab(path, min_counts=10):
 
     idx2word = {idx: word for word, idx in word2idx.items()}
 
-    return word2idx, idx2word
+    return word2idx, idx2word, corpus_size
 
 
 def vectorize(line, word2idx):
     tokens = tokenize(line)
     vector = [word2idx.get(token, SPECIAL_TOKENS["_OOV"]) for token in tokens]
+    vector = [SPECIAL_TOKENS["_START"]] + vector + [SPECIAL_TOKENS["_END"]]
     return vector
 
 
@@ -69,11 +71,12 @@ def preprocess(data):
     # by chopping off the ends, this limits redundant computations in the output layer
     sequence_length = tf.reduce_sum(tf.cast(tf.not_equal(data, 0), dtype=tf.int32), axis=1)
     maximum_sequence_length = tf.reduce_max(sequence_length)
-    data = data[:maximum_sequence_length] 
+    data = data[:, :maximum_sequence_length] 
 
     source = data[:, :-1]
     target = data[:, 1:]
-    return source, target, sequence_length - 1
+    sequence_length -= 1
+    return source, target, sequence_length
 
 
 def get_and_run_input_queues(path, word2idx, batch_size=32, epoch_size=10):
@@ -116,7 +119,7 @@ def queue_context(sess):
 
 if __name__ == "__main__":
     path = DATA_PATH["ptb"]["train"]
-    word2idx, idx2word = build_vocab(path)
+    word2idx, idx2word, corpus_size = build_vocab(path)
 
     with tf.Session() as sess:
         enqueue_data, dequeue_batch = get_and_run_input_queues(path, word2idx)

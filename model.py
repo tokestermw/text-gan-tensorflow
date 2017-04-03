@@ -33,7 +33,7 @@ class Model:
         self.path = path
         self.opts = opts
 
-        self.word2idx, self.idx2word = build_vocab(self.path)
+        self.word2idx, self.idx2word, self.corpus_size = build_vocab(self.path)
         self.vocab_size = len(self.word2idx)
 
         self.enqueue_data, self.source, self.target, self.sequence_length = \

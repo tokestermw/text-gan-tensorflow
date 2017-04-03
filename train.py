@@ -60,7 +60,7 @@ def set_train_op(loss, **opts):
 
 
 def _get_epoch_size(batch_size, corpus_size):
-    pass
+    return int(corpus_size // batch_size)
 
 
 def main():
