@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import json
 import tqdm
+from contextlib import contextmanager
 
 import tensorflow as tf
 
@@ -16,9 +17,13 @@ from model import Model
 flags = tf.flags
 logging = tf.logging
 
-logging.set_verbosity(logging.INFO)
+# -- saver options
+flags.DEFINE_string("model_dir", "./tmp", (
+    "Model directory."))
 
 # -- train options
+flags.DEFINE_string("logging_verbosity", "INFO", (
+    "Set verbosity to INFO, WARN, DEBUG or ERROR"))
 flags.DEFINE_string("corpus_name", "ptb", (
     "Corpus name."))
 flags.DEFINE_integer("batch_size", 32, (
@@ -47,13 +52,28 @@ flags.DEFINE_float("output_dropout_keep_prob", 0.8, (
     "Dropout keep rate for output vectors."))
 
 FLAGS = flags.FLAGS
-opts = FLAGS.__flags  # dict
+opts = FLAGS.__flags  # dict TODO: make class?
+
+# TODO: move to utils
+if FLAGS.logging_verbosity == "INFO":
+    logging.set_verbosity(logging.INFO)
+elif FLAGS.logging_verbosity == "WARN":
+    logging.set_verbosity(logging.WARN)
+elif FLAGS.logging_verbosity == "ERROR":
+    logging.set_verbosity(logging.ERROR)
+elif FLAGS.logging_verbosity == "DEBUG":
+    logging.set_verbosity(logging.DEBUG)
+
+
+def _get_n_batches(batch_size, corpus_size):
+    return int(corpus_size // batch_size)
 
 
 def set_initial_ops():
     local_init_op = tf.local_variables_initializer()
     global_init_op = tf.global_variables_initializer()
-    return local_init_op, global_init_op
+    init_op = tf.group(local_init_op, global_init_op)
+    return init_op
 
 
 def set_train_op(loss, **opts):
@@ -63,21 +83,49 @@ def set_train_op(loss, **opts):
     gradients = optimizer.compute_gradients(cost)
     clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, opts["max_grads"]), var) 
         for grad, var in gradients]
-    train_op = optimizer.apply_gradients(clipped_gradients)
 
-    # train_op = optimizer.minimize(cost)
+    train_op = optimizer.apply_gradients(clipped_gradients)
     return train_op
 
 
-def _get_epoch_size(batch_size, corpus_size):
-    return int(corpus_size // batch_size)
+def get_supervisor(model, **opts):
+    saver = tf.train.Saver()
+    summary_writer = tf.summary.FileWriter(opts["model_dir"])
+
+    supervisor = tf.train.Supervisor(
+        logdir=opts["model_dir"],
+        is_chief=True,
+        saver=saver,
+        summary_op=model.summary_op,
+        summary_writer=summary_writer,
+        save_summaries_secs=300,
+        save_model_secs=100,
+        global_step=model.global_step)
+
+    return supervisor
+
+
+def get_sess_config(**opts):
+    # gpu_options = tf.GPUOptions(
+        # per_process_gpu_memory_fraction=self.gpu_memory_fraction,
+        # allow_growth=True) # seems to be not working
+
+    sess_config = tf.ConfigProto(
+        # log_device_placement=True,
+        inter_op_parallelism_threads=8, 
+        # allow_soft_placement=True,
+        # gpu_options=gpu_options)
+        )
+
+    return sess_config
 
 
 def main():
+    # TODO: change opts to flags
     path = DATA_PATH[FLAGS.corpus_name]["train"]
     model = Model(path, **opts)
 
-    epoch_size = _get_epoch_size(model.opts["batch_size"], model.corpus_size)
+    n_batches = _get_n_batches(model.opts["batch_size"], model.corpus_size)
 
     g_loss = model.g_tensors_pretrain.loss
     g_train_op = set_train_op(g_loss, **opts)
@@ -87,19 +135,29 @@ def main():
     d_loss = (tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)) / 2.0
     d_train_op = set_train_op(d_loss, **opts)
 
-    local_init_op, global_init_op = set_initial_ops()
+    init_op = set_initial_ops()
 
-    with tf.Session() as sess:
-        sess.run([local_init_op, global_init_op])
+    # TODO: restore global_step from saved ckpt file?
+    sv = get_supervisor(model, **opts)
+    sess_config = get_sess_config(**opts)
+
+    with sv.managed_session(config=sess_config) as sess:
+        sess.run(init_op)
 
         threads = start_threads(model.enqueue_data, (sess, ))
 
-        with queue_context(sess):
-            epoch_size = 10000
-            for _ in tqdm.tqdm(range(epoch_size)):
-                sess.run([g_train_op, d_train_op])
+        """
+        WARNING:tensorflow:Error encountered when serializing rnn_cell.
+        Type is unsupported, or the types of the items don't match field type in CollectionDef.
+        'DropoutWrapper' object has no attribute 'name'
+        """
+        with queue_context(sess):  # TODO: remove? managed_session seems to handle this ok
+            for _ in tqdm.tqdm(range(n_batches * opts["epoch_size"])):
+                if sv.should_stop():
+                    break
+                # TODO: add learning rate decay
+                sess.run([g_train_op, d_train_op, model.global_step])
 
 
 if __name__ == "__main__":
-    logging.info(json.dumps(opts, indent=4))
     main()

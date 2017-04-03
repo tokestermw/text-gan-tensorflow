@@ -12,6 +12,7 @@ import functools
 from collections import namedtuple
 
 import tensorflow as tf
+from tensorflow.contrib.framework.python.ops.variables import get_or_create_global_step
 
 # -- local imports
 from data_loader import build_vocab, preprocess, get_and_run_input_queues
@@ -32,6 +33,8 @@ class Model:
     def __init__(self, path, **opts):
         self.path = path
         self.opts = opts
+
+        self.global_step = get_or_create_global_step()
 
         self.word2idx, self.idx2word, self.corpus_size = build_vocab(self.path)
         self.vocab_size = len(self.word2idx)
@@ -57,6 +60,8 @@ class Model:
         # TODO: check to see if sequence_length is correct
         self.d_tensors_generated = self.discriminator_template(
             self.g_tensors_generated.rnn_outputs, None, is_real=False, **self.opts)
+
+        self.summary_op = tf.summary.merge_all()
 
 
 def prepare_data(path, word2idx, **opts):
