@@ -25,8 +25,12 @@ flags.DEFINE_integer("batch_size", 32, (
     "Batch size for dequeue."))
 flags.DEFINE_integer("epoch_size", 10, (
     "Max epochs."))
+
+# -- optimizer options
 flags.DEFINE_float("learning_rate", 0.005, (
     "Learning rate for optimizer."))
+flags.DEFINE_float("max_grads", 5.0, (
+    "Max clipping of gradients."))
 
 # -- model options
 flags.DEFINE_integer("embedding_dim", 128, (
@@ -54,8 +58,14 @@ def set_initial_ops():
 
 def set_train_op(loss, **opts):
     cost = tf.reduce_mean(loss)
-    optim = tf.train.AdamOptimizer(learning_rate=opts["learning_rate"])
-    train_op = optim.minimize(cost)
+    optimizer = tf.train.AdamOptimizer(learning_rate=opts["learning_rate"])
+
+    gradients = optimizer.compute_gradients(cost)
+    clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, opts["max_grads"]), var) 
+        for grad, var in gradients]
+    train_op = optimizer.apply_gradients(clipped_gradients)
+
+    # train_op = optimizer.minimize(cost)
     return train_op
 
 
@@ -66,6 +76,8 @@ def _get_epoch_size(batch_size, corpus_size):
 def main():
     path = DATA_PATH[FLAGS.corpus_name]["train"]
     model = Model(path, **opts)
+
+    epoch_size = _get_epoch_size(model.opts["batch_size"], model.corpus_size)
 
     g_loss = model.g_tensors_pretrain.loss
     g_train_op = set_train_op(g_loss, **opts)
