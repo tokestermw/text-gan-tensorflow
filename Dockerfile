@@ -2,16 +2,30 @@ FROM gcr.io/tensorflow/tensorflow:1.0.0-py3
 
 MAINTAINER Motoki Wu <tokestermw@gmail.com>
 
-# minimal docker file
-# python version is 3.4, 3.6 is used for development
-
-# http://stackoverflow.com/a/34399661/2802468
-COPY requirements.txt /opt/app/requirements.txt
+RUN apt-get update && apt-get install -y \
+        git \
+        wget \
+        htop \
+        python-dev \
+        python3-dev \
+        && \
+    apt-get clean && \
+    apt-get autoremove && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/app
+# http://stackoverflow.com/a/34399661/2802468
+# COPY requirements.txt /opt/app/requirements.txt
+RUN git clone https://github.com/tokestermw/text-gan-tensorflow
+
+WORKDIR /opt/app/text-gan-tensorflow
 RUN pip install -r requirements.txt
 
-COPY . /opt/app
+# COPY . /opt/app
 
-CMD /bin/bash
-# try running python train.py
+# EXPOSE 8888
+
+CMD git pull && python3 train.py
+# try the following
+# docker run text-gan-tensorflow:0.0.1 python train.py
+# docker run text-gan-tensorflow:0.0.1 tensorboard --logdir tmp/ --port 5000
