@@ -10,12 +10,11 @@ from contextlib import contextmanager
 
 import tensorflow as tf
 
-from utils import start_threads
+from utils import start_threads, set_logging_verbosity
 from data_loader import DATA_PATH, queue_context
 from model import Model
 
 flags = tf.flags
-logging = tf.logging
 
 # -- saver options
 flags.DEFINE_string("model_dir", "./tmp", (
@@ -54,15 +53,7 @@ flags.DEFINE_float("output_dropout_keep_prob", 0.8, (
 FLAGS = flags.FLAGS
 opts = FLAGS.__flags  # dict TODO: make class?
 
-# TODO: move to utils
-if FLAGS.logging_verbosity == "INFO":
-    logging.set_verbosity(logging.INFO)
-elif FLAGS.logging_verbosity == "WARN":
-    logging.set_verbosity(logging.WARN)
-elif FLAGS.logging_verbosity == "ERROR":
-    logging.set_verbosity(logging.ERROR)
-elif FLAGS.logging_verbosity == "DEBUG":
-    logging.set_verbosity(logging.DEBUG)
+set_logging_verbosity(FLAGS.logging_verbosity)
 
 
 def _get_n_batches(batch_size, corpus_size):
@@ -77,10 +68,9 @@ def set_initial_ops():
 
 
 def set_train_op(loss, **opts):
-    cost = tf.reduce_mean(loss)
     optimizer = tf.train.AdamOptimizer(learning_rate=opts["learning_rate"])
 
-    gradients = optimizer.compute_gradients(cost)
+    gradients = optimizer.compute_gradients(loss)
     clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, opts["max_grads"]), var) 
         for grad, var in gradients]
 
@@ -96,9 +86,10 @@ def get_supervisor(model, **opts):
         logdir=opts["model_dir"],
         is_chief=True,
         saver=saver,
-        summary_op=model.summary_op,
+        # init_op=model.init_op,
+        # summary_op=model.summary_op,
         summary_writer=summary_writer,
-        save_summaries_secs=300,
+        save_summaries_secs=100,  # TODO: add as flags
         save_model_secs=100,
         global_step=model.global_step)
 
@@ -142,21 +133,27 @@ def main():
     sess_config = get_sess_config(**opts)
 
     with sv.managed_session(config=sess_config) as sess:
-        sess.run(init_op)
+        # sess.run(init_op)  # TODO: managed_session seems to handle this ok
 
         threads = start_threads(model.enqueue_data, (sess, ))
+
+        # TODO: add logging of cost as callback to supervisor
+        def print_loss(sess):
+            _g, _d = sess.run([g_loss, d_loss])
+            tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
+        sv.loop(60, print_loss, (sess, ))
 
         """
         WARNING:tensorflow:Error encountered when serializing rnn_cell.
         Type is unsupported, or the types of the items don't match field type in CollectionDef.
         'DropoutWrapper' object has no attribute 'name'
         """
-        with queue_context(sess):  # TODO: remove? managed_session seems to handle this ok
-            for _ in tqdm.tqdm(range(n_batches * opts["epoch_size"])):
-                if sv.should_stop():
-                    break
-                # TODO: add learning rate decay
-                sess.run([g_train_op, d_train_op, model.global_step])
+        # with queue_context(sess):  # TODO: managed_session seems to handle this ok
+        for _ in tqdm.tqdm(range(n_batches * opts["epoch_size"])):
+            if sv.should_stop():
+                break
+            # TODO: add learning rate decay
+            sess.run([g_train_op, d_train_op, model.global_step])
 
 
 if __name__ == "__main__":

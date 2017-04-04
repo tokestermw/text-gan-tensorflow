@@ -61,7 +61,7 @@ class Model:
         self.d_tensors_generated = self.discriminator_template(
             self.g_tensors_generated.rnn_outputs, None, is_real=False, **self.opts)
 
-        self.summary_op = tf.summary.merge_all()
+        # self.summary_op = tf.summary.merge_all()
 
 
 def prepare_data(path, word2idx, **opts):

@@ -23,10 +23,11 @@ def _rank(x):
     return len(x.get_shape())
 
 
-def _apply_dropout_mask(tensor_shape, keep_prob=1.0):
+def _apply_dropout_mask(tensor_shape, keep_prob=1.0, normalize=True):
     random_tensor = keep_prob + tf.random_uniform(tensor_shape, dtype=tf.float32)
     binary_mask = tf.floor(random_tensor)
-    binary_mask = tf.reciprocal(keep_prob) * binary_mask
+    if normalize:
+        binary_mask = tf.reciprocal(keep_prob) * binary_mask
     return binary_mask
 
 
@@ -70,6 +71,9 @@ def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matri
 
     if opts.get("name"):
         tf.add_to_collection(opts.get("name"), embedding_matrix)
+
+    if opts.get("summary"):
+        tf.summary.scalar(tf.reduce_mean(embedding_matrix))
 
     out = tf.nn.embedding_lookup(embedding_matrix, tensor)
     return out 
@@ -155,7 +159,7 @@ def word_dropout_layer(tensor, keep_prob=1.0, **opts):
     rank = _rank(tensor)
     assert rank == 3, "Use embedding lookup layer"
 
-    binary_mask = _apply_dropout_mask(tf.shape(tensor)[:2], keep_prob)
+    binary_mask = _apply_dropout_mask(tf.shape(tensor)[:2], keep_prob, normalize=False)
     binary_mask = tf.expand_dims(binary_mask, axis=-1)  # proper broadcasting to zero out entire word vectors
 
     out = tensor * binary_mask
@@ -202,10 +206,12 @@ def sigmoid_cross_entropy_layer(tensor, target, **opts):
 
 @pipe
 def mean_loss_by_example_layer(tensor, sequence_length, **opts):
-    out = tf.div(
+    loss = tf.div(
         tf.reduce_sum(tensor, axis=1),
         tf.cast(sequence_length, dtype=tf.float32)
     )
+    out = tf.reduce_mean(loss)
+    tf.summary.scalar('cost', out)
     return out
 
 

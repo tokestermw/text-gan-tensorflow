@@ -9,6 +9,8 @@ import threading
 from contextlib import contextmanager
 from functools import wraps
 
+import tensorflow as tf
+
 
 # TODO: move to utils
 def _check_file(path):
@@ -56,3 +58,18 @@ def compose(data, *funcs):
     for func in funcs:
         data = func(data)
     return data
+
+
+def set_logging_verbosity(logging_verbosity="INFO"):
+    if logging_verbosity == "INFO":
+        tf.logging.set_verbosity(tf.logging.INFO)
+    elif logging_verbosity == "WARN":
+        tf.logging.set_verbosity(tf.logging.WARN)
+    elif logging_verbosity == "ERROR":
+        tf.logging.set_verbosity(tf.logging.ERROR)
+    elif logging_verbosity == "DEBUG":
+        tf.logging.set_verbosity(tf.logging.DEBUG)
+
+
+def delete_files():
+    pass
