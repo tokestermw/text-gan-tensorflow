@@ -91,7 +91,8 @@ def get_supervisor(model, **opts):
         summary_writer=summary_writer,
         save_summaries_secs=100,  # TODO: add as flags
         save_model_secs=100,
-        global_step=model.global_step)
+        # global_step=model.global_step
+        )
 
     return supervisor
 
@@ -153,7 +154,8 @@ def main():
             if sv.should_stop():
                 break
             # TODO: add learning rate decay
-            sess.run([g_train_op, d_train_op, model.global_step])
+            sess.run(g_train_op)  # only run generator
+            # sess.run([g_train_op, d_train_op, model.global_step])
 
 
 if __name__ == "__main__":
