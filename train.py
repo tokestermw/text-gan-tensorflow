@@ -90,7 +90,7 @@ def get_supervisor(model, **opts):
         # summary_op=model.summary_op,
         summary_writer=summary_writer,
         save_summaries_secs=100,  # TODO: add as flags
-        save_model_secs=100,
+        save_model_secs=1000,
         # global_step=model.global_step
         )
 
@@ -140,8 +140,10 @@ def main():
 
         # TODO: add logging of cost as callback to supervisor
         def print_loss(sess):
-            _g, _d = sess.run([g_loss, d_loss])
-            tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
+            _g = sess.run([g_loss])
+            tf.logging.info("g_loss: %.4f", _g)
+            # _g, _d = sess.run([g_loss, d_loss])
+            # tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
         sv.loop(60, print_loss, (sess, ))
 
         """
