@@ -25,7 +25,7 @@ RUN pip install -r requirements.txt
 
 # EXPOSE 8888
 
-CMD git pull && python3 train.py
+CMD git pull && /bin/bash
 # try the following
 # docker run text-gan-tensorflow:0.0.1 python train.py
 # docker run text-gan-tensorflow:0.0.1 tensorboard --logdir tmp/ --port 5000
