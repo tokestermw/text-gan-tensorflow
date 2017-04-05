@@ -90,8 +90,8 @@ def get_supervisor(model):
         logdir=FLAGS.model_dir,
         is_chief=True,
         saver=saver,
-        # init_op=model.init_op,
-        # summary_op=model.summary_op,
+        init_op=set_initial_ops(),
+        summary_op=tf.summary.merge_all(),
         summary_writer=summary_writer,
         save_summaries_secs=100,  # TODO: add as flags
         save_model_secs=1000,
@@ -163,9 +163,6 @@ def main():
 
     g_loss_ma = MovingAverage(10)
 
-    # init_op = set_initial_ops()
-
-    # TODO: restore global_step from saved ckpt file?
     sv = get_supervisor(model)
     sess_config = get_sess_config()
 
@@ -175,7 +172,6 @@ def main():
         threads = start_threads(model.enqueue_data, (sess, ))
         threads_valid = start_threads(model.enqueue_data_valid, (sess, ))
 
-        # TODO: use moving average loss
         # TODO: add learning rate decay -> early_stop
         sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
         sv.loop(600, print_valid_loss, (sess, g_loss_valid))
@@ -196,11 +192,13 @@ def main():
                 sess.run(g_train_op)  # only run generator
                 # sess.run([g_train_op, d_train_op, model.global_step])
 
-                if False:
+                if True:
                     # some criterion
                     sv.stop()
 
-        # TODO: save model at the end
+        sv.saver.save(sess, sv.save_path,
+                            global_step=sv.global_step)
+        tf.logging.info(" training finished")
 
 if __name__ == "__main__":
     main()
