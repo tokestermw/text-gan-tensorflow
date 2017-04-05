@@ -42,7 +42,9 @@ def maybe_save(save_path):
     return decorator
 
 
-def start_threads(thread_fn, args, n_threads=8):
+def start_threads(thread_fn, args, n_threads=1):
+    assert n_threads == 1, "Having multiple threads causes duplicate data in the queue."
+
     threads = []
     for n in range(n_threads):
         t = threading.Thread(target=thread_fn, args=args)

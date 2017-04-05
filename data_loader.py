@@ -87,13 +87,15 @@ def get_and_run_input_queues(path, word2idx, batch_size=32, epoch_size=10):
     enqueue_op = queue.enqueue([input_ph])
     def enqueue_data(sess):
         for epoch in range(epoch_size):
+        # while True:
             for idx, line in enumerate(read_data(path)):
+                # print(line)
                 v = vectorize(line, word2idx)
                 sess.run(enqueue_op, feed_dict={input_ph: v})
 
-    dequeue_op = queue.dequeue()
-    dequeue_batch = tf.train.batch([dequeue_op], batch_size=batch_size, capacity=1000, 
-        dynamic_pad=True, name="batch_and_pad")
+    dequeue_batch = queue.dequeue_many(batch_size)
+    # dequeue_batch = tf.train.batch([dequeue_op], batch_size=batch_size, num_threads=1, capacity=1000, 
+        # dynamic_pad=True, name="batch_and_pad")
 
     return enqueue_data, dequeue_batch
 
@@ -117,16 +119,28 @@ def queue_context(sess):
         coord.join(threads)
 
 
+def _check_for_duplicates(word_ids, batch_size):
+    word_ids = map(tuple, word_ids)
+    dupes = set(word_ids)
+    return batch_size - len(dupes)
+
+
 if __name__ == "__main__":
     path = DATA_PATH["ptb"]["train"]
     word2idx, idx2word, corpus_size = build_vocab(path)
 
     with tf.Session() as sess:
-        enqueue_data, dequeue_batch = get_and_run_input_queues(path, word2idx)
+        batch_size = 32
+        enqueue_data, dequeue_batch = get_and_run_input_queues(path, word2idx, batch_size=batch_size)
         threads = start_threads(enqueue_data, (sess, ))
 
         with queue_context(sess):
             while True:
                 source, target, sequence_length = preprocess(dequeue_batch)
                 s, t, l = sess.run([source, target, sequence_length])
+                print("dupes", _check_for_duplicates(s.tolist(), batch_size))
                 print(s.shape, t.shape, l.shape)
+                # for _s in s.tolist():
+                    # print([idx2word[i] for i in _s])
+                # for _t in t.tolist():
+                    # print([idx2word[i] for i in _t])
