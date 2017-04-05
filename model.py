@@ -15,7 +15,7 @@ import tensorflow as tf
 from tensorflow.contrib.framework.python.ops.variables import get_or_create_global_step
 
 # -- local imports
-from data_loader import build_vocab, preprocess, get_and_run_input_queues
+from data_loader import build_vocab, preprocess, get_input_queues
 from layers import (
     embedding_layer, recurrent_layer, reshape_layer, dense_layer, softmax_layer,
     cross_entropy_layer, sigmoid_cross_entropy_layer, mean_loss_by_example_layer, 
@@ -30,24 +30,32 @@ DiscriminatorTuple = namedtuple("Discriminator",
 
 
 class Model:
-    def __init__(self, path, **opts):
-        self.path = path
+    def __init__(self, corpus, **opts):
+        self.corpus = corpus
+
         self.opts = opts
 
         self.global_step = get_or_create_global_step()
         self.increment_global_step_op = tf.assign(self.global_step, self.global_step + 1, name="increment_global_step")
 
-        self.word2idx, self.idx2word, self.corpus_size = build_vocab(self.path)
+        self.word2idx, self.idx2word, self.corpus_size = \
+            build_vocab(self.corpus["train"])
         self.vocab_size = len(self.word2idx)
 
         self.enqueue_data, self.source, self.target, self.sequence_length = \
-            prepare_data(self.path, self.word2idx, **self.opts)
+            prepare_data(self.corpus["train"], self.word2idx, num_threads=7, **self.opts)
+
+        self.enqueue_data_valid, self.source_valid, self.target_valid, self.sequence_length_valid = \
+            prepare_data(self.corpus["valid"], self.word2idx, num_threads=1, **self.opts)
 
         self.generator_template = tf.make_template("generator", generator)
         self.discriminator_template = tf.make_template("discriminator", discriminator)
 
         self.g_tensors_pretrain = self.generator_template(
             self.source, self.target, self.sequence_length, self.vocab_size, **self.opts)
+
+        self.g_tensors_pretrain_valid = self.generator_template(
+            self.source_valid, self.target_valid, self.sequence_length_valid, self.vocab_size, **self.opts)
 
         self.decoder_fn = prepare_custom_decoder(self.sequence_length)
 
@@ -63,21 +71,21 @@ class Model:
             self.g_tensors_generated.rnn_outputs, None, is_real=False, **self.opts)
 
 
-def prepare_data(path, word2idx, **opts):
+def prepare_data(path, word2idx, num_threads=8, **opts):
     with tf.device("/cpu:0"):
-        enqueue_data, dequeue_batch = get_and_run_input_queues(
-            path, word2idx, batch_size=opts["batch_size"], epoch_size=opts["epoch_size"])
+        enqueue_data, dequeue_batch = get_input_queues(
+            path, word2idx, batch_size=opts["batch_size"], num_threads=num_threads)
         source, target, sequence_length = preprocess(dequeue_batch)
     return enqueue_data, source, target, sequence_length
 
 
 def prepare_custom_decoder(sequence_length):
-    # TODO: is this confusing? global variables
+    # TODO: this is brittle, global variables
     cell = tf.get_collection("rnn_cell")[0]
     encoder_state = cell.zero_state(tf.shape(sequence_length)[0], tf.float32)
 
     embedding_matrix = tf.get_collection("embedding_matrix")[0]
-    output_projections = tf.get_collection("output_projections")
+    output_projections = tf.get_collection("output_projections")[:2]
 
     maximum_length = tf.reduce_max(sequence_length) + 3
 
@@ -120,7 +128,6 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
     if decoder_fn is not None:
         return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=None)
 
-    # TODO: return cost
     loss = (
         flat_logits >> 
         cross_entropy_layer(target=target) >>
@@ -160,6 +167,7 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
     target = tf.zeros(shape=tf.shape(prediction_logits), dtype=tf.float32)
     target += 1.0 if is_real else 0.0
 
+    # TODO: add accuracy
     loss = (
         prediction_logits >>
         sigmoid_cross_entropy_layer(target=target)
