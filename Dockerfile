@@ -6,8 +6,6 @@ RUN apt-get update && apt-get install -y \
         git \
         wget \
         htop \
-        python-dev \
-        python3-dev \
         && \
     apt-get clean && \
     apt-get autoremove && \
