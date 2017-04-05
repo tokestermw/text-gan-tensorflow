@@ -29,6 +29,8 @@ flags.DEFINE_integer("batch_size", 32, (
     "Batch size for dequeue."))
 flags.DEFINE_integer("epoch_size", 10, (
     "Max epochs."))
+flags.DEFINE_string("strategy", "generator", (
+    "GAN training strategy (generator, discriminator, both)."))
 
 # -- optimizer options
 flags.DEFINE_float("learning_rate", 0.0005, (
@@ -67,24 +69,24 @@ def set_initial_ops():
     return init_op
 
 
-def set_train_op(loss, **opts):
-    optimizer = tf.train.AdamOptimizer(learning_rate=opts["learning_rate"])
+def set_train_op(loss):
+    optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
     # optimizer = tf.train.GradientDescentOptimizer(0.01)
 
     gradients = optimizer.compute_gradients(loss)
-    clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, opts["max_grads"]), var) 
+    clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, FLAGS.max_grads), var) 
         for grad, var in gradients]
 
     train_op = optimizer.apply_gradients(clipped_gradients)
     return train_op
 
 
-def get_supervisor(model, **opts):
+def get_supervisor(model):
     saver = tf.train.Saver()
-    summary_writer = tf.summary.FileWriter(opts["model_dir"])
+    summary_writer = tf.summary.FileWriter(FLAGS.model_dir)
 
     supervisor = tf.train.Supervisor(
-        logdir=opts["model_dir"],
+        logdir=FLAGS.model_dir,
         is_chief=True,
         saver=saver,
         # init_op=model.init_op,
@@ -98,7 +100,7 @@ def get_supervisor(model, **opts):
     return supervisor
 
 
-def get_sess_config(**opts):
+def get_sess_config():
     # gpu_options = tf.GPUOptions(
         # per_process_gpu_memory_fraction=self.gpu_memory_fraction,
         # allow_growth=True) # seems to be not working
@@ -113,50 +115,75 @@ def get_sess_config(**opts):
     return sess_config
 
 
-def main():
-    # TODO: change opts to flags
-    path = DATA_PATH[FLAGS.corpus_name]["train"]
-    model = Model(path, **opts)
+def print_loss(sess, loss):
+    l = sess.run(loss)
+    tf.logging.info("loss: %.4f", l)
+    # _g, _d = sess.run([g_loss, d_loss])
+    # tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
 
-    n_batches = _get_n_batches(model.opts["batch_size"], model.corpus_size)
+
+def print_valid_loss(sess, loss):
+    total_loss = 0.0
+    for _ in range(100):  # TODO: change, use all test data
+        l = sess.run(loss)
+        total_loss += l
+
+    valid_loss = total_loss / 100.
+    tf.logging.info("valid_loss: %.4f", valid_loss)
+
+
+# TODO: learing rate decay
+def main():
+    corpus = DATA_PATH[FLAGS.corpus_name]
+    # TODO: move to flags
+    model = Model(corpus, **opts)
+
+    n_batches = _get_n_batches(FLAGS.batch_size, model.corpus_size)
 
     g_loss = model.g_tensors_pretrain.loss
-    g_train_op = set_train_op(g_loss, **opts)
+    g_train_op = set_train_op(g_loss)
+
+    g_loss_valid = model.g_tensors_pretrain_valid.loss
 
     d_loss_real = model.d_tensors_real.loss
     d_loss_generated = model.d_tensors_generated.loss
     d_loss = (tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)) / 2.0
-    d_train_op = set_train_op(d_loss, **opts)
+    d_train_op = set_train_op(d_loss)
 
     init_op = set_initial_ops()
 
     # TODO: restore global_step from saved ckpt file?
-    sv = get_supervisor(model, **opts)
-    sess_config = get_sess_config(**opts)
+    sv = get_supervisor(model)
+    sess_config = get_sess_config()
 
     with sv.managed_session(config=sess_config) as sess:
         threads = start_threads(model.enqueue_data, (sess, ))
+        threads_valid = start_threads(model.enqueue_data_valid, (sess, ))
 
-        # TODO: add logging of cost as callback to supervisor
-        def print_loss(sess):
-            _g = sess.run(g_loss)
-            tf.logging.info("g_loss: %.4f", _g)
-            # _g, _d = sess.run([g_loss, d_loss])
-            # tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
-        sv.loop(60, print_loss, (sess, ))
+        # TODO: use moving average loss
+        # TODO: add learning rate decay -> early_stop
+        sv.loop(60, print_loss, (sess, g_loss))
+        sv.loop(600, print_valid_loss, (sess, g_loss_valid))
 
-        """
-        WARNING:tensorflow:Error encountered when serializing rnn_cell.
-        Type is unsupported, or the types of the items don't match field type in CollectionDef.
-        'DropoutWrapper' object has no attribute 'name'
-        """
-        # with queue_context(sess):  # TODO: managed_session seems to handle this ok
-        for _ in tqdm.tqdm(range(n_batches * opts["epoch_size"])):
-            if sv.should_stop():
-                break
-            # TODO: add learning rate decay
-            sess.run(g_train_op)  # only run generator
-            # sess.run([g_train_op, d_train_op, model.global_step])
+        # make graph read only
+        sess.graph.finalize()
+
+        for epoch in range(FLAGS.epoch_size):
+            tf.logging.info(" epoch: %i", epoch)
+
+            for _ in tqdm.tqdm(range(n_batches)):
+                if sv.should_stop():
+                    break
+
+                # TODO: add strategies
+                # print(sess.run(model.source_valid))
+                # print(sess.run(g_loss_valid))
+                sess.run(g_train_op)  # only run generator
+                # sess.run([g_train_op, d_train_op, model.global_step])
+
+                if False:
+                    # some criterion
+                    sv.stop()
 
 
 if __name__ == "__main__":
