@@ -37,6 +37,7 @@ def _global_keep_prob(keep_prob):
     return keep_prob
 
 
+# TODO: add automatic naming
 def pipe(func):
 
     class Pipe(object):
@@ -67,7 +68,7 @@ def identity_layer(tensor, **opts):
 def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matrix=None, **opts):
     if embedding_matrix is None:
         initializer = tf.contrib.layers.xavier_initializer(uniform=True)
-        embedding_matrix = initializer(shape=(vocab_size, embedding_dim))
+        embedding_matrix = tf.get_variable("embedding_matrix", initializer=initializer(shape=(vocab_size, embedding_dim)))
 
     if opts.get("name"):
         tf.add_to_collection(opts.get("name"), embedding_matrix)
@@ -86,6 +87,7 @@ def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, de
                     return_final_state=False, return_next_cell_input=True, **opts):
     if cell is None:
         cell = tf.contrib.rnn.BasicRNNCell(hidden_dims, activation=activation)
+        # cell = tf.contrib.rnn.LSTMCell(hidden_dims, activation=activation)
 
     if keep_prob < 1.0:
         keep_prob = _global_keep_prob(keep_prob)
@@ -125,11 +127,13 @@ def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
         # -- time distributed dense
         tensor = tf.reshape(tensor, shape=(-1, in_dim))
 
+    name = opts.get("name", "")
+
     if weight is None:
         initializer = tf.contrib.layers.xavier_initializer(uniform=True)
-        weight = initializer(shape=(in_dim, hidden_dims))
+        weight = tf.get_variable("{}_dense_W".format(name), initializer=initializer(shape=(in_dim, hidden_dims)))
     if bias is None:
-        bias = tf.zeros(shape=hidden_dims)
+        bias = tf.get_variable("{}_dense_b".format(name), initializer=tf.zeros(shape=hidden_dims))
 
     if opts.get("name"):
         tf.add_to_collection(opts.get("name"), weight)
