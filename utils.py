@@ -8,6 +8,7 @@ import pickle
 import threading
 from contextlib import contextmanager
 from functools import wraps
+from collections import deque
 
 import tensorflow as tf
 
@@ -71,6 +72,29 @@ def set_logging_verbosity(logging_verbosity="INFO"):
         tf.logging.set_verbosity(tf.logging.ERROR)
     elif logging_verbosity == "DEBUG":
         tf.logging.set_verbosity(tf.logging.DEBUG)
+
+
+class MovingAverage(object):
+
+    def __init__(self, size):
+        """
+        Initialize your data structure here.
+        :type size: int
+        """
+        self.__size = size
+        self.__sum = 0
+        self.__q = deque([])
+
+    def next(self, val):
+        """
+        :type val: int
+        :rtype: float
+        """
+        if len(self.__q) == self.__size:
+            self.__sum -= self.__q.popleft()
+        self.__sum += val
+        self.__q.append(val)
+        return 1.0 * self.__sum / len(self.__q)
 
 
 def delete_files():

@@ -10,8 +10,9 @@ from contextlib import contextmanager
 
 import tensorflow as tf
 
-from utils import start_threads, set_logging_verbosity
+from utils import start_threads, set_logging_verbosity, MovingAverage
 from data_loader import DATA_PATH, queue_context
+from layers import _phase_train, _phase_infer
 from model import Model
 
 flags = tf.flags
@@ -115,21 +116,31 @@ def get_sess_config():
     return sess_config
 
 
-def print_loss(sess, loss):
+def print_loss(sess, loss, moving_average=None):
     l = sess.run(loss)
-    tf.logging.info("loss: %.4f", l)
+    if moving_average is None:
+        tf.logging.info(" loss: %.4f", l)
+    else:
+        l_ma = moving_average.next(l)
+        tf.logging.info(" loss: %.4f", l_ma)
+
     # _g, _d = sess.run([g_loss, d_loss])
     # tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
 
 
+# TODO: add to TensorBoard
 def print_valid_loss(sess, loss):
+    sess.run(_phase_infer)
+
     total_loss = 0.0
     for _ in range(100):  # TODO: change, use all test data
         l = sess.run(loss)
         total_loss += l
 
     valid_loss = total_loss / 100.
-    tf.logging.info("valid_loss: %.4f", valid_loss)
+    tf.logging.info(" valid_loss: %.4f", valid_loss)
+
+    sess.run(_phase_train)
 
 
 # TODO: learing rate decay
@@ -150,19 +161,23 @@ def main():
     d_loss = (tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)) / 2.0
     d_train_op = set_train_op(d_loss)
 
-    init_op = set_initial_ops()
+    g_loss_ma = MovingAverage(10)
+
+    # init_op = set_initial_ops()
 
     # TODO: restore global_step from saved ckpt file?
     sv = get_supervisor(model)
     sess_config = get_sess_config()
 
     with sv.managed_session(config=sess_config) as sess:
+        sess.run(_phase_train)
+
         threads = start_threads(model.enqueue_data, (sess, ))
         threads_valid = start_threads(model.enqueue_data_valid, (sess, ))
 
         # TODO: use moving average loss
         # TODO: add learning rate decay -> early_stop
-        sv.loop(60, print_loss, (sess, g_loss))
+        sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
         sv.loop(600, print_valid_loss, (sess, g_loss_valid))
 
         # make graph read only
@@ -185,6 +200,7 @@ def main():
                     # some criterion
                     sv.stop()
 
+        # TODO: save model at the end
 
 if __name__ == "__main__":
     main()
