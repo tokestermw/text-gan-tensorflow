@@ -35,6 +35,7 @@ class Model:
         self.opts = opts
 
         self.global_step = get_or_create_global_step()
+        self.increment_global_step_op = tf.assign(self.global_step, self.global_step + 1, name="increment_global_step")
 
         self.word2idx, self.idx2word, self.corpus_size = build_vocab(self.path)
         self.vocab_size = len(self.word2idx)
@@ -60,8 +61,6 @@ class Model:
         # TODO: check to see if sequence_length is correct
         self.d_tensors_generated = self.discriminator_template(
             self.g_tensors_generated.rnn_outputs, None, is_real=False, **self.opts)
-
-        # self.summary_op = tf.summary.merge_all()
 
 
 def prepare_data(path, word2idx, **opts):
@@ -101,6 +100,7 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
     """
     tf.logging.info(" --- Setting up generator")
 
+    # TODO: change name= argument
     rnn_outputs = (
         source >>
         embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix") >>
@@ -142,18 +142,18 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
 
     rnn_final_state = (
         input_vectors >> 
-        dense_layer(hidden_dims=opts["embedding_dim"]) >>  # projection layer keep shape [B, T, H]
+        dense_layer(hidden_dims=opts["embedding_dim"], name="proj_0") >> 
         recurrent_layer(sequence_length=sequence_length, hidden_dims=opts["rnn_hidden_dim"], return_final_state=True)
     )
 
     prediction_logits = (
         rnn_final_state >>
-        dense_layer(hidden_dims=opts["output_hidden_dim"]) >> 
+        dense_layer(hidden_dims=opts["output_hidden_dim"], name="out_0") >> 
         relu_layer() >>
         dropout_layer(opts["output_dropout_keep_prob"]) >>
-        dense_layer(hidden_dims=opts["output_hidden_dim"]) >>
+        dense_layer(hidden_dims=opts["output_hidden_dim"], name="out_1") >>
         relu_layer() >>
-        dropout_layer(opts["output_dropout_keep_prob"]) >>
+        dropout_layer(opts["output_dropout_keep_prob"], name="out_2") >>
         dense_layer(hidden_dims=1)
     )
 

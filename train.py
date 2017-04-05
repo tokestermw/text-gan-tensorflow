@@ -31,7 +31,7 @@ flags.DEFINE_integer("epoch_size", 10, (
     "Max epochs."))
 
 # -- optimizer options
-flags.DEFINE_float("learning_rate", 0.005, (
+flags.DEFINE_float("learning_rate", 0.0005, (
     "Learning rate for optimizer."))
 flags.DEFINE_float("max_grads", 5.0, (
     "Max clipping of gradients."))
@@ -47,7 +47,7 @@ flags.DEFINE_float("word_dropout_keep_prob", 0.9, (
     "Dropout keep rate for word embeddings."))
 flags.DEFINE_float("recurrent_dropout_keep_prob", 0.6, (
     "Dropout keep rate for recurrent input and output vectors."))
-flags.DEFINE_float("output_dropout_keep_prob", 0.8, (
+flags.DEFINE_float("output_dropout_keep_prob", 0.5, (
     "Dropout keep rate for output vectors."))
 
 FLAGS = flags.FLAGS
@@ -69,6 +69,7 @@ def set_initial_ops():
 
 def set_train_op(loss, **opts):
     optimizer = tf.train.AdamOptimizer(learning_rate=opts["learning_rate"])
+    # optimizer = tf.train.GradientDescentOptimizer(0.01)
 
     gradients = optimizer.compute_gradients(loss)
     clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, opts["max_grads"]), var) 
@@ -91,7 +92,7 @@ def get_supervisor(model, **opts):
         summary_writer=summary_writer,
         save_summaries_secs=100,  # TODO: add as flags
         save_model_secs=1000,
-        # global_step=model.global_step
+        global_step=model.increment_global_step_op,
         )
 
     return supervisor
@@ -134,13 +135,11 @@ def main():
     sess_config = get_sess_config(**opts)
 
     with sv.managed_session(config=sess_config) as sess:
-        # sess.run(init_op)  # TODO: managed_session seems to handle this ok
-
         threads = start_threads(model.enqueue_data, (sess, ))
 
         # TODO: add logging of cost as callback to supervisor
         def print_loss(sess):
-            _g = sess.run([g_loss])
+            _g = sess.run(g_loss)
             tf.logging.info("g_loss: %.4f", _g)
             # _g, _d = sess.run([g_loss, d_loss])
             # tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
