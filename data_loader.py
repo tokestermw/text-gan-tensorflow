@@ -18,18 +18,21 @@ DATA_DIR = "data"
 DATA_PATH = {
     "ptb": {
         "train": os.path.join(DATA_DIR, "ptb", "train.txt"),
-        "test": os.path.join(DATA_DIR, "ptb", "test.txt"),
         "valid": os.path.join(DATA_DIR, "ptb", "valid.txt"),
+        "test": os.path.join(DATA_DIR, "ptb", "test.txt"),
         "vocab": os.path.join(DATA_DIR, "ptb", "vocab.pkl"),
     }
 }
 
 SPECIAL_TOKENS = { "_PAD": 0, "_OOV": 1, "_START": 2, "_END": 3}
 
+MAXLEN = 100  # maximum words in a line
+
 
 # TODO: spacy tokenizer
 def tokenize(line):
-    return line.split()
+    tokens = line.split()
+    return tokens[:MAXLEN]
 
 
 def read_data(path):
@@ -39,7 +42,7 @@ def read_data(path):
             yield line
 
 
-# TODO: make save_path a command line option
+# TODO: change so you can change the save_path
 @maybe_save(save_path=DATA_PATH["ptb"]["vocab"])
 def build_vocab(path, min_counts=10):
     counts = Counter()
@@ -79,23 +82,23 @@ def preprocess(data):
     return source, target, sequence_length
 
 
-def get_and_run_input_queues(path, word2idx, batch_size=32, epoch_size=10):
+def get_input_queues(path, word2idx, batch_size=32, num_threads=8):
     input_ph = tf.placeholder(tf.int32, shape=[None])  # [B, T]
     queue = tf.PaddingFIFOQueue(shapes=[[None, ]], dtypes=[tf.int32], capacity=5000,)
 
     # TODO: enqueue_many would be faster, would require batch and padding at numpy-level
     enqueue_op = queue.enqueue([input_ph])
     def enqueue_data(sess):
-        for epoch in range(epoch_size):
-        # while True:
+        # for epoch in range(epoch_size):
+        while True:  # 
             for idx, line in enumerate(read_data(path)):
-                # print(line)
                 v = vectorize(line, word2idx)
                 sess.run(enqueue_op, feed_dict={input_ph: v})
 
-    dequeue_batch = queue.dequeue_many(batch_size)
-    # dequeue_batch = tf.train.batch([dequeue_op], batch_size=batch_size, num_threads=1, capacity=1000, 
-        # dynamic_pad=True, name="batch_and_pad")
+    # dequeue_batch = queue.dequeue_many(batch_size)
+    dequeue_op = queue.dequeue()
+    dequeue_batch = tf.train.batch([dequeue_op], batch_size=batch_size, num_threads=num_threads, capacity=1000, 
+        dynamic_pad=True, name="batch_and_pad")
 
     return enqueue_data, dequeue_batch
 
@@ -131,7 +134,7 @@ if __name__ == "__main__":
 
     with tf.Session() as sess:
         batch_size = 32
-        enqueue_data, dequeue_batch = get_and_run_input_queues(path, word2idx, batch_size=batch_size)
+        enqueue_data, dequeue_batch = get_input_queues(path, word2idx, batch_size=batch_size)
         threads = start_threads(enqueue_data, (sess, ))
 
         with queue_context(sess):
