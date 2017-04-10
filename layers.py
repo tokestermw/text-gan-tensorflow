@@ -37,11 +37,9 @@ def _global_keep_prob(keep_prob):
     return keep_prob
 
 
-# TODO: add automatic naming
-# TODO: call it layer of pipe?
-def pipe(func):
+def layer(func):
 
-    class Pipe(object):
+    class Layer(object):
         def __init__(self, *args, **kwargs):
             self.func = func
             self.args = args
@@ -68,16 +66,16 @@ def pipe(func):
         def unique_name(self):
             return self._unique_name
 
-    return Pipe
+    return Layer
 
 
-@pipe
+@layer
 def identity_layer(tensor, **opts):
     out = tf.identity(tensor)
     return out
 
 
-@pipe
+@layer
 def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matrix=None, **opts):
     if embedding_matrix is None:
         initializer = tf.contrib.layers.xavier_initializer(uniform=True)
@@ -93,7 +91,7 @@ def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matri
     return out 
 
 
-@pipe
+@layer
 def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, decoder_fn=None, 
                     activation=tf.nn.tanh, initializer=tf.orthogonal_initializer(), initial_state=None, 
                     keep_prob=1.0,
@@ -124,13 +122,13 @@ def recurrent_layer(tensor, cell=None, hidden_dims=128, sequence_length=None, de
         return outputs
 
 
-@pipe
+@layer
 def reshape_layer(tensor, shape, **opts):
     out = tf.reshape(tensor, shape=shape)
     return out
 
 
-@pipe
+@layer
 def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
     original_tensor_shape = tf.shape(tensor)
     in_dim = int(tensor.get_shape()[-1])
@@ -161,7 +159,7 @@ def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
     return out
 
 
-@pipe
+@layer
 def dropout_layer(tensor, keep_prob=1.0, **opts):
     keep_prob = _global_keep_prob(keep_prob)
     out = tf.nn.dropout(tensor, keep_prob=keep_prob)
@@ -169,7 +167,7 @@ def dropout_layer(tensor, keep_prob=1.0, **opts):
 
 
 # TODO: should i normalize?
-@pipe
+@layer
 def word_dropout_layer(tensor, keep_prob=1.0, **opts):
     keep_prob = _global_keep_prob(keep_prob)
 
@@ -183,19 +181,19 @@ def word_dropout_layer(tensor, keep_prob=1.0, **opts):
     return out
 
 
-@pipe
+@layer
 def relu_layer(tensor):
     out = tf.nn.relu(tensor)
     return out
 
 
-@pipe
+@layer
 def tanh_layer(tensor):
     out = tf.nn.tanh(tensor)
     return out
 
 
-@pipe
+@layer
 def softmax_layer(tensor, softmax_func=None, **opts):
     if softmax_func is None:
         softmax_func = tf.nn.softmax
@@ -204,7 +202,7 @@ def softmax_layer(tensor, softmax_func=None, **opts):
     return out
 
 
-@pipe
+@layer
 def cross_entropy_layer(tensor, target, **opts):
     if _rank(tensor) > 1:
         target = tf.reshape(target, shape=(-1, ))
@@ -215,13 +213,13 @@ def cross_entropy_layer(tensor, target, **opts):
     return out
 
 
-@pipe
+@layer
 def sigmoid_cross_entropy_layer(tensor, target, **opts):
     out = tf.nn.sigmoid_cross_entropy_with_logits(logits=tensor, labels=target)
     return out
 
 
-@pipe
+@layer
 def mean_loss_by_example_layer(tensor, sequence_length, **opts):
     loss = tf.div(
         tf.reduce_sum(tensor, axis=1),
@@ -232,17 +230,17 @@ def mean_loss_by_example_layer(tensor, sequence_length, **opts):
     return out
 
 
-@pipe
+@layer
 def conv1d_layer(tensor, dilation_rate=1, **opts):
     raise NotImplementedError
 
 
-@pipe
+@layer
 def residual_layer(tensor, **opts):
     raise NotImplementedError
 
 
-@pipe
+@layer
 def highway_layer(tensor, **opts):
     raise NotImplementedError
 
