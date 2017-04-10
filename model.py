@@ -16,11 +16,7 @@ from tensorflow.contrib.framework.python.ops.variables import get_or_create_glob
 
 # -- local imports
 from data_loader import get_corpus_size, build_vocab, preprocess, get_input_queues
-from layers import (
-    embedding_layer, recurrent_layer, reshape_layer, dense_layer, softmax_layer,
-    cross_entropy_layer, sigmoid_cross_entropy_layer, mean_loss_by_example_layer, 
-    dropout_layer, word_dropout_layer, relu_layer, tanh_layer
-)
+import layers as lay
 from decoders import gumbel_decoder_fn
 
 GeneratorTuple = namedtuple("Generator", 
@@ -122,28 +118,28 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
     # TODO: change name= argument
     rnn_outputs = (
         source >>
-        embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix") >>
-        word_dropout_layer(keep_prob=opts["word_dropout_keep_prob"]) >>
-        recurrent_layer(hidden_dims=opts["rnn_hidden_dim"], keep_prob=opts["recurrent_dropout_keep_prob"], 
+        lay.embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix") >>
+        lay.word_dropout_layer(keep_prob=opts["word_dropout_keep_prob"]) >>
+        lay.recurrent_layer(hidden_dims=opts["rnn_hidden_dim"], keep_prob=opts["recurrent_dropout_keep_prob"], 
             sequence_length=sequence_length, decoder_fn=decoder_fn, name="rnn_cell")
     )
 
     flat_logits = (
         rnn_outputs >>
-        reshape_layer(shape=(-1, opts["rnn_hidden_dim"])) >>
-        dense_layer(hidden_dims=vocab_size, name="output_projections")
+        lay.reshape_layer(shape=(-1, opts["rnn_hidden_dim"])) >>
+        lay.dense_layer(hidden_dims=vocab_size, name="output_projections")
     )
 
-    probs = flat_logits >> softmax_layer() >> reshape_layer(shape=tf.shape(target))
+    probs = flat_logits >> lay.softmax_layer() >> lay.reshape_layer(shape=tf.shape(target))
 
     if decoder_fn is not None:
         return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=None)
 
     loss = (
         flat_logits >> 
-        cross_entropy_layer(target=target) >>
-        reshape_layer(shape=tf.shape(target)) >>
-        mean_loss_by_example_layer(sequence_length=sequence_length)
+        lay.cross_entropy_layer(target=target) >>
+        lay.reshape_layer(shape=tf.shape(target)) >>
+        lay.mean_loss_by_example_layer(sequence_length=sequence_length)
     )
 
     return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=loss)
@@ -160,19 +156,19 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
 
     rnn_final_state = (
         input_vectors >> 
-        dense_layer(hidden_dims=opts["embedding_dim"]) >> 
-        recurrent_layer(sequence_length=sequence_length, hidden_dims=opts["rnn_hidden_dim"], return_final_state=True)
+        lay.dense_layer(hidden_dims=opts["embedding_dim"]) >> 
+        lay.recurrent_layer(sequence_length=sequence_length, hidden_dims=opts["rnn_hidden_dim"], return_final_state=True)
     )
 
     prediction_logits = (
         rnn_final_state >>
-        dense_layer(hidden_dims=opts["output_hidden_dim"]) >> 
-        relu_layer() >>
-        dropout_layer(opts["output_dropout_keep_prob"]) >>
-        dense_layer(hidden_dims=opts["output_hidden_dim"]) >>
-        relu_layer() >>
-        dropout_layer(opts["output_dropout_keep_prob"]) >>
-        dense_layer(hidden_dims=1)
+        lay.dense_layer(hidden_dims=opts["output_hidden_dim"]) >> 
+        lay.relu_layer() >>
+        lay.dropout_layer(opts["output_dropout_keep_prob"]) >>
+        lay.dense_layer(hidden_dims=opts["output_hidden_dim"]) >>
+        lay.relu_layer() >>
+        lay.dropout_layer(opts["output_dropout_keep_prob"]) >>
+        lay.dense_layer(hidden_dims=1)
     )
 
     target = tf.zeros(shape=tf.shape(prediction_logits), dtype=tf.float32)
@@ -181,7 +177,7 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
     # TODO: add accuracy
     loss = (
         prediction_logits >>
-        sigmoid_cross_entropy_layer(target=target)
+        lay.sigmoid_cross_entropy_layer(target=target)
     )
 
     return DiscriminatorTuple(rnn_final_state=rnn_final_state, prediction_logits=prediction_logits, loss=loss)
