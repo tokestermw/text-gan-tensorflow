@@ -10,10 +10,11 @@ from contextlib import contextmanager
 
 import tensorflow as tf
 
-from utils import start_threads, set_logging_verbosity, MovingAverage
-from data_loader import DATA_PATH, queue_context
+from utils import start_threads, set_logging_verbosity, MovingAverage, count_number_of_parameters
+from data_loader import DATA_PATH, queue_context, tokenize, vectorize
 from layers import _phase_train, _phase_infer
 from model import Model
+from search import reverse_decode, greedy_argmax
 
 flags = tf.flags
 
@@ -143,6 +144,15 @@ def print_valid_loss(sess, loss):
     sess.run(_phase_train)
 
 
+# TODO: configurable seed_text
+def print_sample(sess, seed_text, probs, input_ph, word2idx, idx2word):
+    # seed_text = "how are you"
+    vector = vectorize(seed_text, word2idx)
+    out = greedy_argmax(vector[:-1], lambda x: sess.run(probs, {input_ph: [x]}))
+    text = reverse_decode(out, idx2word)
+    tf.logging.info(" generated text:\n%s", text)
+
+
 # TODO: learing rate decay
 def main():
     corpus = DATA_PATH[FLAGS.corpus_name]
@@ -166,6 +176,8 @@ def main():
     sv = get_supervisor(model)
     sess_config = get_sess_config()
 
+    print("Number of parameters", count_number_of_parameters())
+
     with sv.managed_session(config=sess_config) as sess:
         sess.run(_phase_train)
 
@@ -175,6 +187,8 @@ def main():
         # TODO: add learning rate decay -> early_stop
         sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
         sv.loop(600, print_valid_loss, (sess, g_loss_valid))
+        sv.loop(100, print_sample, (sess, "what are", model.g_tensors_pretrain_valid.flat_logits, 
+            model.input_ph, model.word2idx, model.idx2word))  # TODO: cleanup
 
         # make graph read only
         sess.graph.finalize()
@@ -192,13 +206,13 @@ def main():
                 sess.run(g_train_op)  # only run generator
                 # sess.run([g_train_op, d_train_op, model.global_step])
 
-                if True:
+                if False:
                     # some criterion
                     sv.stop()
 
-        sv.saver.save(sess, sv.save_path,
-                            global_step=sv.global_step)
+        sv.saver.save(sess, sv.save_path, global_step=sv.global_step)
         tf.logging.info(" training finished")
+
 
 if __name__ == "__main__":
     main()
