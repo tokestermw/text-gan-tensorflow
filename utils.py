@@ -97,5 +97,21 @@ class MovingAverage(object):
         return 1.0 * self.__sum / len(self.__q)
 
 
+def count_number_of_parameters():
+    total_parameters = 0
+    for variable in tf.trainable_variables():
+        # shape is an array of tf.Dimension
+        shape = variable.get_shape()
+        # print(shape)
+        # print(len(shape))
+        variable_parametes = 1
+        for dim in shape:
+            # print(dim)
+            variable_parametes *= dim.value
+        # print(variable_parametes)
+        total_parameters += variable_parametes
+    return total_parameters
+    
+
 def delete_files():
     pass
