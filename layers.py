@@ -38,6 +38,7 @@ def _global_keep_prob(keep_prob):
 
 
 # TODO: add automatic naming
+# TODO: call it layer of pipe?
 def pipe(func):
 
     class Pipe(object):
@@ -47,13 +48,25 @@ def pipe(func):
             self.kwargs = kwargs
             self.name = self.kwargs.get("name", self.func.__name__)
 
+            self._template = tf.make_template(self.name, self.func, create_scope_now_=True)
+            self._unique_name = self._template.variable_scope.name.split("/")[-1]
+
         def __rrshift__(self, other):
             # >>
-            with tf.variable_scope(self.name, None, self.args):
-                out = self.func(other, *self.args, **self.kwargs)
+            # with tf.variable_scope(self.name, None, self.args):
+                # out = self.func(other, *self.args, **self.kwargs)
+            out = self._template(other, *self.args, **self.kwargs)
             tf.logging.info(" {} {} {} -> {}".format(
-                self.name, "shape", str(other.get_shape()), str(out.get_shape())))
+                self._unique_name, "shape", str(other.get_shape()), str(out.get_shape())))
             return out
+
+        @property
+        def template(self):
+            return self._template
+
+        @property
+        def unique_name(self):
+            return self._unique_name
 
     return Pipe
 
