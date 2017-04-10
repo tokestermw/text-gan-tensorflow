@@ -31,7 +31,9 @@ flags.DEFINE_integer("batch_size", 32, (
     "Batch size for dequeue."))
 flags.DEFINE_integer("epoch_size", 10, (
     "Max epochs."))
-flags.DEFINE_string("strategy", "generator", (
+flags.DEFINE_string("seed_text", "how are", (
+    "Seed the sampling from the generator with this text."))
+flags.DEFINE_string("gan_strategy", "generator", (
     "GAN training strategy (generator, discriminator, both)."))
 
 # -- optimizer options
@@ -96,7 +98,7 @@ def get_supervisor(model):
         summary_writer=summary_writer,
         save_summaries_secs=100,  # TODO: add as flags
         save_model_secs=1000,
-        global_step=model.increment_global_step_op,
+        global_step=model.global_step,
         )
 
     return supervisor
@@ -176,7 +178,7 @@ def main():
     sv = get_supervisor(model)
     sess_config = get_sess_config()
 
-    print("Number of parameters", count_number_of_parameters())
+    tf.logging.info(" number of parameters %i", count_number_of_parameters())
 
     with sv.managed_session(config=sess_config) as sess:
         sess.run(_phase_train)
@@ -187,7 +189,7 @@ def main():
         # TODO: add learning rate decay -> early_stop
         sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
         sv.loop(600, print_valid_loss, (sess, g_loss_valid))
-        sv.loop(100, print_sample, (sess, "what are", model.g_tensors_pretrain_valid.flat_logits, 
+        sv.loop(100, print_sample, (sess, FLAGS.seed_text, model.g_tensors_pretrain_valid.flat_logits, 
             model.input_ph, model.word2idx, model.idx2word))  # TODO: cleanup
 
         # make graph read only
@@ -203,7 +205,7 @@ def main():
                 # TODO: add strategies
                 # print(sess.run(model.source_valid))
                 # print(sess.run(g_loss_valid))
-                sess.run(g_train_op)  # only run generator
+                sess.run([g_train_op, model.increment_global_step_op])  # only run generator
                 # sess.run([g_train_op, d_train_op, model.global_step])
 
                 if False:

@@ -25,6 +25,7 @@ DiscriminatorTuple = namedtuple("Discriminator",
     ["rnn_final_state", "prediction_logits", "loss"])
 
 
+# TODO: separate the variables for generator and discriminators
 class Model:
     def __init__(self, corpus, **opts):
         self.corpus = corpus
@@ -142,6 +143,7 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
         lay.mean_loss_by_example_layer(sequence_length=sequence_length)
     )
 
+    # TODO: add dropout penalty
     return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=loss)
 
 
@@ -171,8 +173,10 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
         lay.dense_layer(hidden_dims=1)
     )
 
-    target = tf.zeros(shape=tf.shape(prediction_logits), dtype=tf.float32)
-    target += 1.0 if is_real else 0.0
+    if is_real:
+        target = tf.zeros_like(prediction_logits)
+    else:
+        target = tf.ones_like(prediction_logits)
 
     # TODO: add accuracy
     loss = (
