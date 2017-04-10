@@ -18,27 +18,33 @@ from search import reverse_decode, greedy_argmax
 
 flags = tf.flags
 
-# -- saver options
+# -- saver and logging options
 flags.DEFINE_string("model_dir", "./tmp", (
     "Model directory."))
-
-# -- train options
 flags.DEFINE_string("logging_verbosity", "INFO", (
     "Set verbosity to INFO, WARN, DEBUG or ERROR"))
+
+# -- train options
 flags.DEFINE_string("corpus_name", "ptb", (
     "Corpus name."))
 flags.DEFINE_integer("batch_size", 32, (
     "Batch size for dequeue."))
 flags.DEFINE_integer("epoch_size", 10, (
-    "Max epochs."))
+    "Quit after max number of epochs."))
 flags.DEFINE_string("seed_text", "how are", (
     "Seed the sampling from the generator with this text."))
 flags.DEFINE_string("gan_strategy", "generator", (
-    "GAN training strategy (generator, discriminator, both)."))
+    "GAN training strategy (generator, discriminator, simultaneous, alternating)."))
+flags.DEFINE_string("gan_loss", "jsd", (
+    "GAN type (jsd, emd, ls)."))
 
 # -- optimizer options
-flags.DEFINE_float("learning_rate", 0.0005, (
+flags.DEFINE_float("learning_rate", 1e-4, (
     "Learning rate for optimizer."))
+flags.DEFINE_float("learning_rate_decay", 0.8, (
+    "Decay the learning rate once criterion is passed."))
+flags.DEFINE_float("minimum_learning_rate", 1e-6, (
+    "Early stop when lowering than minimum."))
 flags.DEFINE_float("max_grads", 5.0, (
     "Max clipping of gradients."))
 
@@ -111,7 +117,7 @@ def get_sess_config():
 
     sess_config = tf.ConfigProto(
         # log_device_placement=True,
-        inter_op_parallelism_threads=8, 
+        inter_op_parallelism_threads=8,  # TODO: add as flags
         # allow_soft_placement=True,
         # gpu_options=gpu_options)
         )
@@ -169,8 +175,8 @@ def main():
     g_loss_valid = model.g_tensors_pretrain_valid.loss
 
     d_loss_real = model.d_tensors_real.loss
-    d_loss_generated = model.d_tensors_generated.loss
-    d_loss = (tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_generated)) / 2.0
+    d_loss_fake = model.d_tensors_fake.loss
+    d_loss = (tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_fake)) / 2.0
     d_train_op = set_train_op(d_loss)
 
     g_loss_ma = MovingAverage(10)

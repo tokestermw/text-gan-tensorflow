@@ -32,7 +32,6 @@ class Model:
 
         self.opts = opts
 
-        # TODO: need to increment during run()
         self.global_step = get_or_create_global_step()
         self.increment_global_step_op = tf.assign(self.global_step, self.global_step + 1, name="increment_global_step")
 
@@ -58,14 +57,9 @@ class Model:
         self.g_tensors_pretrain_valid = self.generator_template(
             source_valid, target_valid, sequence_length_valid, self.vocab_size, **self.opts)
 
-        # self.input_ph, source_ph, target_ph, sequence_length_ph = prepare_placeholders()
-
-        # self.g_tensors_ph = self.generator_template(
-        #     source_ph, target_ph, sequence_length_ph, self.vocab_size, **self.opts)
-
         self.decoder_fn = prepare_custom_decoder(sequence_length)
 
-        self.g_tensors_generated = self.generator_template(
+        self.g_tensors_fake = self.generator_template(
             source, target, sequence_length, self.vocab_size, decoder_fn=self.decoder_fn, **self.opts)
 
         # TODO: using the rnn outputs from pretraining as "real" instead of target embeddings (aka professor forcing)
@@ -73,15 +67,15 @@ class Model:
             self.g_tensors_pretrain.rnn_outputs, sequence_length, is_real=True, **self.opts)
 
         # TODO: check to see if sequence_length is correct
-        self.d_tensors_generated = self.discriminator_template(
-            self.g_tensors_generated.rnn_outputs, None, is_real=False, **self.opts)
+        self.d_tensors_fake = self.discriminator_template(
+            self.g_tensors_fake.rnn_outputs, None, is_real=False, **self.opts)
 
 
 def prepare_data(path, word2idx, num_threads=8, **opts):
     with tf.device("/cpu:0"):
         enqueue_data, dequeue_batch = get_input_queues(
             path, word2idx, batch_size=opts["batch_size"], num_threads=num_threads)
-        # TODO: add placeholder_with_default
+        # TODO: put this logic somewhere else
         input_ph = tf.placeholder_with_default(dequeue_batch, (None, None))
         source, target, sequence_length = preprocess(input_ph)
     return enqueue_data, input_ph, source, target, sequence_length
@@ -101,16 +95,12 @@ def prepare_custom_decoder(sequence_length):
     return decoder_fn
 
 
-def prepare_inputs():
-    pass
-
-
 def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **opts):
     """
     Args:
         source: TensorFlow queue or placeholder tensor for word ids for source 
         target: TensorFlow queue or placeholder tensor for word ids for target
-        sequence_length: TensorFlow queue or placeholder tensor for word ids for target
+        sequence_length: TensorFlow queue or placeholder tensor for number of word ids for each sentence
         vocab_size: max vocab size determined from data
         decoder_fn: if using custom decoder_fn else use the default dynamic_rnn
     """
@@ -131,7 +121,7 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
         lay.dense_layer(hidden_dims=vocab_size, name="output_projections")
     )
 
-    probs = flat_logits >> lay.softmax_layer() >> lay.reshape_layer(shape=tf.shape(target))
+    probs = flat_logits >> lay.softmax_layer()
 
     if decoder_fn is not None:
         return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=None)
@@ -150,9 +140,9 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
 def discriminator(input_vectors, sequence_length, is_real=True, **opts):
     """
     Args:
-        input_vectors:
-        sequence_length:
-        is_real: 
+        input_vectors: output of the RNN either from real or generated data
+        sequence_length: TensorFlow queue or placeholder tensor for number of word ids for each sentence
+        is_real: if True, RNN outputs when feeding in actual data, if False feeds in generated data
     """
     tf.logging.info(" --- Setting up discriminator")
 
@@ -174,9 +164,9 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
     )
 
     if is_real:
-        target = tf.zeros_like(prediction_logits)
-    else:
         target = tf.ones_like(prediction_logits)
+    else:
+        target = tf.zeros_like(prediction_logits)
 
     # TODO: add accuracy
     loss = (
@@ -184,6 +174,7 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
         lay.sigmoid_cross_entropy_layer(target=target)
     )
 
+    # TODO: return logits in case for WGAN and l2 GANs
     return DiscriminatorTuple(rnn_final_state=rnn_final_state, prediction_logits=prediction_logits, loss=loss)
 
 

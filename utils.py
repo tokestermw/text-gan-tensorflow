@@ -90,11 +90,14 @@ class MovingAverage(object):
         :type val: int
         :rtype: float
         """
-        if len(self.__q) == self.__size:
+        if len(self) == self.__size:
             self.__sum -= self.__q.popleft()
         self.__sum += val
         self.__q.append(val)
         return 1.0 * self.__sum / len(self.__q)
+
+    def __len__(self):
+        return len(self.__q)
 
 
 def count_number_of_parameters():
