@@ -42,14 +42,19 @@ def read_data(path):
             yield line
 
 
+def get_corpus_size(path):
+    corpus_size = 0
+    for line in read_data(path):
+        corpus_size += 1
+    return corpus_size
+
+
 # TODO: change so you can change the save_path
 @maybe_save(save_path=DATA_PATH["ptb"]["vocab"])
 def build_vocab(path, min_counts=10):
     counts = Counter()
 
-    corpus_size = 0
     for line in read_data(path):
-        corpus_size += 1
         tokens = tokenize(line)
         for token in tokens:
             counts[token] += 1
@@ -59,7 +64,7 @@ def build_vocab(path, min_counts=10):
 
     idx2word = {idx: word for word, idx in word2idx.items()}
 
-    return word2idx, idx2word, corpus_size
+    return word2idx, idx2word
 
 
 def vectorize(line, word2idx):
@@ -83,7 +88,7 @@ def preprocess(data):
 
 
 def get_input_queues(path, word2idx, batch_size=32, num_threads=8):
-    input_ph = tf.placeholder(tf.int32, shape=[None])  # [B, T]
+    input_ph = tf.placeholder(tf.int32, shape=[None])  # [T]
     queue = tf.PaddingFIFOQueue(shapes=[[None, ]], dtypes=[tf.int32], capacity=5000,)
 
     # TODO: enqueue_many would be faster, would require batch and padding at numpy-level
@@ -100,6 +105,7 @@ def get_input_queues(path, word2idx, batch_size=32, num_threads=8):
     dequeue_batch = tf.train.batch([dequeue_op], batch_size=batch_size, num_threads=num_threads, capacity=1000, 
         dynamic_pad=True, name="batch_and_pad")
 
+    # TODO: get corpus_size here
     return enqueue_data, dequeue_batch
 
 
@@ -130,7 +136,8 @@ def _check_for_duplicates(word_ids, batch_size):
 
 if __name__ == "__main__":
     path = DATA_PATH["ptb"]["train"]
-    word2idx, idx2word, corpus_size = build_vocab(path)
+
+    word2idx, idx2word = build_vocab(path)
 
     with tf.Session() as sess:
         batch_size = 32
