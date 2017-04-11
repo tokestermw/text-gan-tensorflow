@@ -4,9 +4,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import json
+import random
 import tqdm
-from contextlib import contextmanager
 
 import tensorflow as tf
 
@@ -38,6 +37,8 @@ flags.DEFINE_string("gan_strategy", "pretrain", (
     "GAN training strategy (pretrain, generator, discriminator, simultaneous, alternating)."))
 flags.DEFINE_string("gan_type", "jsd", (
     "GAN type (jsd, emd, ls)."))
+flags.DEFINE_float("gan_gd_ratio", 0.5, (
+    "Ratio > 0.5 will run generator more, < 0.5 will run discriminator more."))
 
 # -- optimizer options
 flags.DEFINE_string("optimizer_type", "adam", (
@@ -186,7 +187,9 @@ def main():
     d_logits_real = model.d_tensors_real.prediction_logits
     d_logits_fake = model.d_tensors_fake.prediction_logits
 
-    gan_d_loss, gan_g_loss = gan_loss(d_logits_real, d_logits_fake, gan_type=FLAGS.gan_type)
+    gan_d_loss, gan_g_loss = gan_loss(
+        d_logits_real, d_logits_fake, gan_type=FLAGS.gan_type)
+
     gan_d_train_op = set_train_op(gan_d_loss, model.d_tvars)
     gan_g_train_op = set_train_op(gan_g_loss, model.g_tvars)
 
@@ -209,6 +212,11 @@ def main():
             sv.loop(600, print_valid_loss, (sess, g_loss_valid))
             sv.loop(100, print_sample, (sess, FLAGS.seed_text, model.g_tensors_pretrain_valid.flat_logits,
                                         model.input_ph, model.word2idx, model.idx2word))  # TODO: cleanup
+        elif FLAGS.gan_strategy in ["generator", "simultaneous", "alternating"]:
+            # sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
+            # sv.loop(600, print_valid_loss, (sess, g_loss_valid))
+            sv.loop(100, print_sample, (sess, FLAGS.seed_text, model.g_tensors_fake_valid.flat_logits,
+                                        model.input_ph, model.word2idx, model.idx2word))
 
         # make graph read only
         sess.graph.finalize()
@@ -229,7 +237,12 @@ def main():
                 elif FLAGS.gan_strategy == "simultaneous":
                     sess.run([gan_g_train_op, gan_d_train_op, model.increment_global_step_op])
                 elif FLAGS.gan_strategy == "alternating":
-                    raise NotImplementedError
+                    assert 0. < FLAGS.gan_gd_ratio < 1.0
+                    u = random.random()
+                    if FLAGS.gan_gd_ratio < u:
+                        sess.run([gan_g_train_op, model.increment_global_step_op])
+                    elif FLAGS.gan_gd_ratio > u:
+                        sess.run([gan_d_train_op, model.increment_global_step_op])
                 else:
                     raise ValueError("Wrong gan_strategy.")
 

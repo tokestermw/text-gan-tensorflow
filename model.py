@@ -66,6 +66,9 @@ class Model:
         self.g_tensors_fake = self.generator_template(
             source, target, sequence_length, self.vocab_size, decoder_fn=self.decoder_fn, **self.opts)
 
+        self.g_tensors_fake_valid = self.generator_template(
+            source_valid, target_valid, sequence_length_valid, self.vocab_size, decoder_fn=self.decoder_fn, **self.opts)
+
         # TODO: using the rnn outputs from pretraining as "real" instead of target embeddings (aka professor forcing)
         self.d_tensors_real = self.discriminator_template(
             self.g_tensors_pretrain.rnn_outputs, sequence_length, is_real=True, **self.opts)
