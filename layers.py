@@ -51,10 +51,8 @@ def layer(func):
 
         def __rrshift__(self, other):
             # >>
-            # with tf.variable_scope(self.name, None, self.args):
-                # out = self.func(other, *self.args, **self.kwargs)
             out = self._template(other, *self.args, **self.kwargs)
-            tf.logging.info(" {} {} {} -> {}".format(
+            tf.logging.info("     {} {} {} -> {}".format(
                 self._unique_name, "shape", str(other.get_shape()), str(out.get_shape())))
             return out
 
@@ -81,6 +79,7 @@ def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matri
         initializer = tf.contrib.layers.xavier_initializer(uniform=True)
         embedding_matrix = tf.get_variable("embedding_matrix", initializer=initializer(shape=(vocab_size, embedding_dim)))
 
+    # TODO: a lot of tensors accumulated into collections (see pretty tensor?)
     if opts.get("name"):
         tf.add_to_collection(opts.get("name"), embedding_matrix)
 
