@@ -15,7 +15,9 @@ class GanTypes:
 
 
 def gan_loss(d_logits_real, d_logits_fake, gan_type="jsd"):
+    # TODO: add namespace
     if gan_type == "jsd":
+        # TODO: use official tensorflow ops (sigmoid_cross_entropy)
         d_probs_real = tf.sigmoid(d_logits_real)
         d_probs_fake = tf.sigmoid(d_logits_fake)
 
@@ -27,13 +29,14 @@ def gan_loss(d_logits_real, d_logits_fake, gan_type="jsd"):
 
     elif gan_type == "emd":
         # batch size should be first dim
-        d_mean_real = tf.reduce_mean(d_logits_real, axis=-1)
-        d_mean_fake = tf.reduce_mean(d_logits_fake, axis=-1)
+        # d_mean_real = tf.reduce_mean(d_logits_real, axis=-1)
+        # d_mean_fake = tf.reduce_mean(d_logits_fake, axis=-1)
 
-        d_loss = tf.reduce_mean(d_mean_real - d_mean_fake)
-        g_loss = -tf.reduce_mean(d_mean_fake)
+        d_loss = tf.reduce_mean(d_logits_real - d_logits_fake)
+        g_loss = -tf.reduce_mean(d_logits_fake)
 
     elif gan_type == "ls":
+        # TODO: averaging over batch?
         d_sq_real = (d_logits_real - 1.) ** 2.
         d_sq_fake = d_logits_fake ** 2.
 
