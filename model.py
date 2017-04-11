@@ -23,7 +23,7 @@ GENERATOR_PREFIX = "generator"
 DISCRIMINATOR_PREFIX = "discriminator"
 
 GeneratorTuple = namedtuple("Generator",
-                            ["rnn_outputs", "flat_logits", "probs", "loss"])
+                            ["rnn_outputs", "flat_logits", "probs", "loss", "embedding_matrix", "output_projections"])
 DiscriminatorTuple = namedtuple("Discriminator",
                                 ["rnn_final_state", "prediction_logits", "loss"])
 
@@ -60,7 +60,8 @@ class Model:
         self.g_tensors_pretrain_valid = self.generator_template(
             source_valid, target_valid, sequence_length_valid, self.vocab_size, **self.opts)
 
-        self.decoder_fn = prepare_custom_decoder(sequence_length)
+        self.decoder_fn = prepare_custom_decoder(
+            sequence_length, self.g_tensors_pretrain.embedding_matrix, self.g_tensors_pretrain.output_projections)
 
         self.g_tensors_fake = self.generator_template(
             source, target, sequence_length, self.vocab_size, decoder_fn=self.decoder_fn, **self.opts)
@@ -87,13 +88,13 @@ def prepare_data(path, word2idx, num_threads=8, **opts):
     return enqueue_data, input_ph, source, target, sequence_length
 
 
-def prepare_custom_decoder(sequence_length):
+def prepare_custom_decoder(sequence_length, embedding_matrix, output_projections):
     # TODO: this is brittle, global variables
     cell = tf.get_collection("rnn_cell")[0]
     encoder_state = cell.zero_state(tf.shape(sequence_length)[0], tf.float32)
 
-    embedding_matrix = tf.get_collection("embedding_matrix")[0]
-    output_projections = tf.get_collection("output_projections")[:2]  # TODO: repeated output_projections
+    # embedding_matrix = tf.get_collection("embedding_matrix")[0]
+    # output_projections = tf.get_collection("output_projections")[:2]  # TODO: repeated output_projections
 
     maximum_length = tf.reduce_max(sequence_length) + 3
 
@@ -112,25 +113,33 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
     """
     tf.logging.info(" Setting up generator")
 
+    embedding_layer = lay.embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix")
+
     # TODO: add batch norm?
     rnn_outputs = (
         source >>
-        lay.embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix") >>
+        embedding_layer >>
         lay.word_dropout_layer(keep_prob=opts["word_dropout_keep_prob"]) >>
         lay.recurrent_layer(hidden_dims=opts["rnn_hidden_dim"], keep_prob=opts["recurrent_dropout_keep_prob"],
                             sequence_length=sequence_length, decoder_fn=decoder_fn, name="rnn_cell")
     )
 
+    output_projection_layer = lay.dense_layer(hidden_dims=vocab_size, name="output_projections")
+
     flat_logits = (
         rnn_outputs >>
         lay.reshape_layer(shape=(-1, opts["rnn_hidden_dim"])) >>
-        lay.dense_layer(hidden_dims=vocab_size, name="output_projections")
+        output_projection_layer
     )
 
     probs = flat_logits >> lay.softmax_layer()
 
+    embedding_matrix = embedding_layer.get_variables_in_scope()
+    output_projections = output_projection_layer.get_variables_in_scope()
+
     if decoder_fn is not None:
-        return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=None)
+        return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=None,
+                              embedding_matrix=embedding_matrix[0], output_projections=output_projections)
 
     loss = (
         flat_logits >>
@@ -140,7 +149,8 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
     )
 
     # TODO: add dropout penalty
-    return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=loss)
+    return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=loss,
+                          embedding_matrix=embedding_matrix[0], output_projections=output_projections)
 
 
 def discriminator(input_vectors, sequence_length, is_real=True, **opts):

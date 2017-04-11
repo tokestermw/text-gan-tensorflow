@@ -6,9 +6,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from contextlib import contextmanager
-from functools import partial, wraps
-
 import tensorflow as tf
 from tensorflow.contrib import seq2seq
 
@@ -48,13 +45,36 @@ def layer(func):
 
             self._template = tf.make_template(self.name, self.func, create_scope_now_=True)
             self._unique_name = self._template.variable_scope.name.split("/")[-1]
+            self._summary_added = False
+
+        def __call__(self, x):
+            out = self.template(x, *self.args, **self.kwargs)
+            self._layer_logging(x, out)
+            self._add_summary()
+            return out
 
         def __rrshift__(self, other):
-            # >>
-            out = self._template(other, *self.args, **self.kwargs)
+            """ >> """
+            return self.__call__(other)
+
+        def _layer_logging(self, other, out):
             tf.logging.info("     {} {} {} -> {}".format(
-                self._unique_name, "shape", str(other.get_shape()), str(out.get_shape())))
-            return out
+                self.unique_name, "shape", str(other.get_shape()), str(out.get_shape())))
+
+        def _add_summary(self):
+            if not self.kwargs.get("summary"):
+                return None
+            if self.summary_added:
+                return None
+            for var in self.get_variables_in_scope():
+                # TODO: different summary types
+                tf.summary.scalar(var.name, tf.reduce_mean(var))
+            self._summary_added = True
+
+        def get_variables_in_scope(self):
+            assert self.template._variables_created, "Variables not yet created or undefined."
+            variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self.variable_scope_name)
+            return variables
 
         @property
         def template(self):
@@ -63,6 +83,14 @@ def layer(func):
         @property
         def unique_name(self):
             return self._unique_name
+
+        @property
+        def variable_scope_name(self):
+            return self.template._variable_scope._name
+
+        @property
+        def summary_added(self):
+            return self._summary_added
 
     return Layer
 
@@ -78,13 +106,6 @@ def embedding_layer(tensor, vocab_size=None, embedding_dim=None, embedding_matri
     if embedding_matrix is None:
         initializer = tf.contrib.layers.xavier_initializer(uniform=True)
         embedding_matrix = tf.get_variable("embedding_matrix", initializer=initializer(shape=(vocab_size, embedding_dim)))
-
-    # TODO: a lot of tensors accumulated into collections (see pretty tensor?)
-    if opts.get("name"):
-        tf.add_to_collection(opts.get("name"), embedding_matrix)
-
-    if opts.get("summary"):
-        tf.summary.scalar(tf.reduce_mean(embedding_matrix))
 
     out = tf.nn.embedding_lookup(embedding_matrix, tensor)
     return out 
@@ -144,10 +165,6 @@ def dense_layer(tensor, hidden_dims, weight=None, bias=None, **opts):
         weight = tf.get_variable("{}_dense_W".format(name), initializer=initializer(shape=(in_dim, hidden_dims)))
     if bias is None:
         bias = tf.get_variable("{}_dense_b".format(name), initializer=tf.zeros(shape=hidden_dims))
-
-    if opts.get("name"):
-        tf.add_to_collection(opts.get("name"), weight)
-        tf.add_to_collection(opts.get("name"), bias)
 
     out = tf.add(tf.matmul(tensor, weight), bias)
 
