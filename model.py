@@ -19,10 +19,13 @@ from data_loader import get_corpus_size, build_vocab, preprocess, get_input_queu
 import layers as lay
 from decoders import gumbel_decoder_fn
 
-GeneratorTuple = namedtuple("Generator", 
-    ["rnn_outputs", "flat_logits", "probs", "loss"])
-DiscriminatorTuple = namedtuple("Discriminator", 
-    ["rnn_final_state", "prediction_logits", "loss"])
+GENERATOR_PREFIX = "generator"
+DISCRIMINATOR_PREFIX = "discriminator"
+
+GeneratorTuple = namedtuple("Generator",
+                            ["rnn_outputs", "flat_logits", "probs", "loss"])
+DiscriminatorTuple = namedtuple("Discriminator",
+                                ["rnn_final_state", "prediction_logits", "loss"])
 
 
 # TODO: separate the variables for generator and discriminators
@@ -41,13 +44,13 @@ class Model:
         self.word2idx, self.idx2word = build_vocab(self.corpus["train"])
         self.vocab_size = len(self.word2idx)
 
-        self.generator_template = tf.make_template("generator", generator)
-        self.discriminator_template = tf.make_template("discriminator", discriminator)
+        self.generator_template = tf.make_template(GENERATOR_PREFIX, generator)
+        self.discriminator_template = tf.make_template(DISCRIMINATOR_PREFIX, discriminator)
 
         self.enqueue_data, _, source, target, sequence_length = \
             prepare_data(self.corpus["train"], self.word2idx, num_threads=7, **self.opts)
 
-        # TODO: a lot of tensors accumulated into collecitions (see pretty tensor?)
+        # TODO: option to either do pretrain or just generate?
         self.g_tensors_pretrain = self.generator_template(
             source, target, sequence_length, self.vocab_size, **self.opts)
 
@@ -69,6 +72,9 @@ class Model:
         # TODO: check to see if sequence_length is correct
         self.d_tensors_fake = self.discriminator_template(
             self.g_tensors_fake.rnn_outputs, None, is_real=False, **self.opts)
+
+        self.g_tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=GENERATOR_PREFIX)
+        self.d_tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=DISCRIMINATOR_PREFIX)
 
 
 def prepare_data(path, word2idx, num_threads=8, **opts):
@@ -104,15 +110,15 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
         vocab_size: max vocab size determined from data
         decoder_fn: if using custom decoder_fn else use the default dynamic_rnn
     """
-    tf.logging.info(" --- Setting up generator")
+    tf.logging.info(" Setting up generator")
 
-    # TODO: change name= argument
+    # TODO: add batch norm?
     rnn_outputs = (
         source >>
         lay.embedding_layer(vocab_size, opts["embedding_dim"], name="embedding_matrix") >>
         lay.word_dropout_layer(keep_prob=opts["word_dropout_keep_prob"]) >>
-        lay.recurrent_layer(hidden_dims=opts["rnn_hidden_dim"], keep_prob=opts["recurrent_dropout_keep_prob"], 
-            sequence_length=sequence_length, decoder_fn=decoder_fn, name="rnn_cell")
+        lay.recurrent_layer(hidden_dims=opts["rnn_hidden_dim"], keep_prob=opts["recurrent_dropout_keep_prob"],
+                            sequence_length=sequence_length, decoder_fn=decoder_fn, name="rnn_cell")
     )
 
     flat_logits = (
@@ -127,7 +133,7 @@ def generator(source, target, sequence_length, vocab_size, decoder_fn=None, **op
         return GeneratorTuple(rnn_outputs=rnn_outputs, flat_logits=flat_logits, probs=probs, loss=None)
 
     loss = (
-        flat_logits >> 
+        flat_logits >>
         lay.cross_entropy_layer(target=target) >>
         lay.reshape_layer(shape=tf.shape(target)) >>
         lay.mean_loss_by_example_layer(sequence_length=sequence_length)
@@ -144,17 +150,18 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
         sequence_length: TensorFlow queue or placeholder tensor for number of word ids for each sentence
         is_real: if True, RNN outputs when feeding in actual data, if False feeds in generated data
     """
-    tf.logging.info(" --- Setting up discriminator")
+    tf.logging.info(" Setting up discriminator")
 
     rnn_final_state = (
-        input_vectors >> 
-        lay.dense_layer(hidden_dims=opts["embedding_dim"]) >> 
-        lay.recurrent_layer(sequence_length=sequence_length, hidden_dims=opts["rnn_hidden_dim"], return_final_state=True)
+        input_vectors >>
+        lay.dense_layer(hidden_dims=opts["embedding_dim"]) >>
+        lay.recurrent_layer(sequence_length=sequence_length, hidden_dims=opts["rnn_hidden_dim"],
+                            return_final_state=True)
     )
 
     prediction_logits = (
         rnn_final_state >>
-        lay.dense_layer(hidden_dims=opts["output_hidden_dim"]) >> 
+        lay.dense_layer(hidden_dims=opts["output_hidden_dim"]) >>
         lay.relu_layer() >>
         lay.dropout_layer(opts["output_dropout_keep_prob"]) >>
         lay.dense_layer(hidden_dims=opts["output_hidden_dim"]) >>
@@ -181,6 +188,7 @@ def discriminator(input_vectors, sequence_length, is_real=True, **opts):
 if __name__ == "__main__":
     from data_loader import DATA_PATH
     from train import opts
+
     corpus = DATA_PATH["ptb"]
 
     model = Model(corpus, **opts)

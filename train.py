@@ -15,6 +15,7 @@ from data_loader import DATA_PATH, queue_context, tokenize, vectorize
 from layers import _phase_train, _phase_infer
 from model import Model
 from search import reverse_decode, greedy_argmax
+from losses import gan_loss
 
 flags = tf.flags
 
@@ -35,7 +36,7 @@ flags.DEFINE_string("seed_text", "how are", (
     "Seed the sampling from the generator with this text."))
 flags.DEFINE_string("gan_strategy", "generator", (
     "GAN training strategy (generator, discriminator, simultaneous, alternating)."))
-flags.DEFINE_string("gan_loss", "jsd", (
+flags.DEFINE_string("gan_type", "jsd", (
     "GAN type (jsd, emd, ls)."))
 
 # -- optimizer options
@@ -79,13 +80,13 @@ def set_initial_ops():
     return init_op
 
 
-def set_train_op(loss):
+def set_train_op(loss, tvars):
     optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
     # optimizer = tf.train.GradientDescentOptimizer(0.01)
 
-    gradients = optimizer.compute_gradients(loss)
-    clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, FLAGS.max_grads), var) 
-        for grad, var in gradients]
+    gradients = optimizer.compute_gradients(loss, var_list=tvars)
+    clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, FLAGS.max_grads), var)
+                         for grad, var in gradients]
 
     train_op = optimizer.apply_gradients(clipped_gradients)
     return train_op
@@ -105,22 +106,22 @@ def get_supervisor(model):
         save_summaries_secs=100,  # TODO: add as flags
         save_model_secs=1000,
         global_step=model.global_step,
-        )
+    )
 
     return supervisor
 
 
 def get_sess_config():
     # gpu_options = tf.GPUOptions(
-        # per_process_gpu_memory_fraction=self.gpu_memory_fraction,
-        # allow_growth=True) # seems to be not working
+    # per_process_gpu_memory_fraction=self.gpu_memory_fraction,
+    # allow_growth=True) # seems to be not working
 
     sess_config = tf.ConfigProto(
         # log_device_placement=True,
         inter_op_parallelism_threads=8,  # TODO: add as flags
         # allow_soft_placement=True,
         # gpu_options=gpu_options)
-        )
+    )
 
     return sess_config
 
@@ -133,8 +134,8 @@ def print_loss(sess, loss, moving_average=None):
         l_ma = moving_average.next(l)
         tf.logging.info(" loss: %.4f", l_ma)
 
-    # _g, _d = sess.run([g_loss, d_loss])
-    # tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
+        # _g, _d = sess.run([g_loss, d_loss])
+        # tf.logging.info("g_loss: %.4f, d_loss: %.4f", _g, _d)
 
 
 # TODO: add to TensorBoard
@@ -161,23 +162,25 @@ def print_sample(sess, seed_text, probs, input_ph, word2idx, idx2word):
     tf.logging.info(" generated text:\n%s", text)
 
 
-# TODO: learing rate decay
+# TODO: learning rate decay
 def main():
     corpus = DATA_PATH[FLAGS.corpus_name]
-    # TODO: move to flags
     model = Model(corpus, **opts)
 
     n_batches = _get_n_batches(FLAGS.batch_size, model.corpus_size)
 
+    # TODO: rename to pretrain
     g_loss = model.g_tensors_pretrain.loss
-    g_train_op = set_train_op(g_loss)
+    g_train_op = set_train_op(g_loss, model.g_tvars)
 
     g_loss_valid = model.g_tensors_pretrain_valid.loss
 
-    d_loss_real = model.d_tensors_real.loss
-    d_loss_fake = model.d_tensors_fake.loss
-    d_loss = (tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_fake)) / 2.0
-    d_train_op = set_train_op(d_loss)
+    d_logits_real = model.d_tensors_real.prediction_logits
+    d_logits_fake = model.d_tensors_fake.prediction_logits
+
+    gan_d_loss, gan_g_loss = gan_loss(d_logits_real, d_logits_fake, gan_type=FLAGS.gan_type)
+    gan_d_train_op = set_train_op(gan_d_loss, model.d_tvars)
+    gan_g_train_op = set_train_op(gan_g_loss, model.g_tvars)
 
     g_loss_ma = MovingAverage(10)
 
@@ -189,14 +192,14 @@ def main():
     with sv.managed_session(config=sess_config) as sess:
         sess.run(_phase_train)
 
-        threads = start_threads(model.enqueue_data, (sess, ))
-        threads_valid = start_threads(model.enqueue_data_valid, (sess, ))
+        start_threads(model.enqueue_data, (sess,))
+        start_threads(model.enqueue_data_valid, (sess,))
 
         # TODO: add learning rate decay -> early_stop
         sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
         sv.loop(600, print_valid_loss, (sess, g_loss_valid))
-        sv.loop(100, print_sample, (sess, FLAGS.seed_text, model.g_tensors_pretrain_valid.flat_logits, 
-            model.input_ph, model.word2idx, model.idx2word))  # TODO: cleanup
+        sv.loop(100, print_sample, (sess, FLAGS.seed_text, model.g_tensors_pretrain_valid.flat_logits,
+                                    model.input_ph, model.word2idx, model.idx2word))  # TODO: cleanup
 
         # make graph read only
         sess.graph.finalize()
