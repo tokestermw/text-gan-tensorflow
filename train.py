@@ -34,12 +34,14 @@ flags.DEFINE_integer("epoch_size", 10, (
     "Quit after max number of epochs."))
 flags.DEFINE_string("seed_text", "how are", (
     "Seed the sampling from the generator with this text."))
-flags.DEFINE_string("gan_strategy", "generator", (
-    "GAN training strategy (generator, discriminator, simultaneous, alternating)."))
+flags.DEFINE_string("gan_strategy", "pretrain", (
+    "GAN training strategy (pretrain, generator, discriminator, simultaneous, alternating)."))
 flags.DEFINE_string("gan_type", "jsd", (
     "GAN type (jsd, emd, ls)."))
 
 # -- optimizer options
+flags.DEFINE_string("optimizer_type", "adam", (
+    "Optimizer type (adam, sgd, rmsprop)."))
 flags.DEFINE_float("learning_rate", 1e-4, (
     "Learning rate for optimizer."))
 flags.DEFINE_float("learning_rate_decay", 0.8, (
@@ -81,8 +83,14 @@ def set_initial_ops():
 
 
 def set_train_op(loss, tvars):
-    optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
-    # optimizer = tf.train.GradientDescentOptimizer(0.01)
+    if FLAGS.optimizer_type == "sgd":
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate=FLAGS.learning_rate)
+    elif FLAGS.optimizer_type == "rmsprop":
+        optimizer = tf.train.RMSPropOptimizer(learning_rate=FLAGS.learning_rate)
+    elif FLAGS.optimizer_type == "adam":
+        optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
+    else:
+        raise ValueError("Wrong optimizer_type.")
 
     gradients = optimizer.compute_gradients(loss, var_list=tvars)
     clipped_gradients = [(grad if grad is None else tf.clip_by_norm(grad, FLAGS.max_grads), var)
@@ -196,10 +204,11 @@ def main():
         start_threads(model.enqueue_data_valid, (sess,))
 
         # TODO: add learning rate decay -> early_stop
-        sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
-        sv.loop(600, print_valid_loss, (sess, g_loss_valid))
-        sv.loop(100, print_sample, (sess, FLAGS.seed_text, model.g_tensors_pretrain_valid.flat_logits,
-                                    model.input_ph, model.word2idx, model.idx2word))  # TODO: cleanup
+        if FLAGS.gan_strategy == "pretrain":
+            sv.loop(60, print_loss, (sess, g_loss, g_loss_ma))
+            sv.loop(600, print_valid_loss, (sess, g_loss_valid))
+            sv.loop(100, print_sample, (sess, FLAGS.seed_text, model.g_tensors_pretrain_valid.flat_logits,
+                                        model.input_ph, model.word2idx, model.idx2word))  # TODO: cleanup
 
         # make graph read only
         sess.graph.finalize()
@@ -211,11 +220,18 @@ def main():
                 if sv.should_stop():
                     break
 
-                # TODO: add strategies
-                # print(sess.run(model.source_valid))
-                # print(sess.run(g_loss_valid))
-                sess.run([g_train_op, model.increment_global_step_op])  # only run generator
-                # sess.run([g_train_op, d_train_op, model.global_step])
+                if FLAGS.gan_strategy == "pretrain":
+                    sess.run([g_train_op, model.increment_global_step_op])
+                elif FLAGS.gan_strategy == "generator":
+                    sess.run([gan_g_train_op, model.increment_global_step_op])
+                elif FLAGS.gan_strategy == "discriminator":
+                    sess.run([gan_d_train_op, model.increment_global_step_op])
+                elif FLAGS.gan_strategy == "simultaneous":
+                    sess.run([gan_g_train_op, gan_d_train_op, model.increment_global_step_op])
+                elif FLAGS.gan_strategy == "alternating":
+                    raise NotImplementedError
+                else:
+                    raise ValueError("Wrong gan_strategy.")
 
                 if False:
                     # some criterion
